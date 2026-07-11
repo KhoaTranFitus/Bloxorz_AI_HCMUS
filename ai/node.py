@@ -1,0 +1,1 @@
+"""AI search node placeholder."""
