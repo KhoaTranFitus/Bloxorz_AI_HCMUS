@@ -27,7 +27,7 @@ class Block:
         sẽ cùng sử dụng nó để kiểm tra trạng thái hợp lệ.
         """
 
-        if self.orientation == Orientation.STANDING:
+        if self.orientation == Orientation.STANDING or self.orientation == Orientation.CUBE:
             return ((self.row, self.col),)
 
         if self.orientation == Orientation.HORIZONTAL:

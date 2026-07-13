@@ -1,0 +1,15 @@
+{
+  "name": "Winding Bridge Forced Split Level 06",
+  "board": [
+    "######.######",
+    "##S#.##.#####",
+    "#####.#######",
+    "#####..##G###",
+    "#####..######"
+  ],
+  "start": {
+    "row": 1,
+    "col": 1,
+    "orientation": "standing"
+  }
+}
