@@ -1,25 +1,33 @@
 """Main game controller."""
 
 from pathlib import Path
+from typing import Any, Callable
 
 from ursina import (
     AmbientLight,
     Button,
+    Color,
     DirectionalLight,
     Entity,
     Text,
     Vec3,
     camera,
     color,
+    destroy,
     invoke,
 )
 
+from ai.bfs import bfs_search
+from ai.profiler import run_with_profiling
+from ai.result import SolveResult
 from core.enums import Move
 from core.level import Level
 from core.level_loader import load_level
 from core.state import GameState
 from core.transition import apply_move, is_goal_state
 from game.renderer import BlockRenderer, BoardRenderer
+from game.replay_controller import ReplayController
+from gui.statistics_panel import StatisticsPanel
 
 
 class GameController(Entity):
@@ -37,6 +45,15 @@ class GameController(Entity):
         "d": Move.RIGHT,
     }
 
+    # Registry: tên thuật toán → hàm search tương ứng.
+    # Khi DFS/UCS/A* được viết xong, chỉ cần thêm vào đây.
+    SOLVER_REGISTRY: dict[str, Callable[..., dict[str, Any] | None] | None] = {
+        "BFS": bfs_search,
+        "DFS": None,    # Chưa implement
+        "UCS": None,    # Chưa implement
+        "A*":  None,    # Chưa implement
+    }
+
     def __init__(self, level_path: str | Path) -> None:
         super().__init__()
 
@@ -47,6 +64,19 @@ class GameController(Entity):
         self.move_count = 0
         self.has_won = False
         self.is_busy = False
+
+        print("[DEBUG] NEW GameController loaded — solver buttons active")
+
+        # Lưu trữ kết quả chạy solver (dùng cho Statistics panel)
+        self.solver_results: list[SolveResult] = []
+
+        # Replay controller (khởi tạo khi chạy solver)
+        self.replay_controller: ReplayController | None = None
+
+        # Statistics panel
+        self.statistics_panel = StatisticsPanel()
+
+        self.next_level_button: Button | None = None
 
         self.board_renderer = BoardRenderer(self.level.board)
 
@@ -59,8 +89,25 @@ class GameController(Entity):
         self._update_status_text()
 
     def _create_environment(self) -> None:
-        # Nền xám xanh tối.
-        camera.color = color.rgb(30, 35, 45)
+        # Background image gắn trực tiếp đằng sau camera (local Z = 50)
+        # unlit=True giúp ảnh không bị ảnh hưởng bởi ánh sáng 3D
+        self.bg_plane = Entity(
+            parent=camera,
+            model="quad",
+            texture="assets/background.png",
+            position=(0, 0, 50),
+            scale=(100, 56.25),
+            unlit=True,
+        )
+
+        # Chữ "CodenChill" ở gần mép dưới của màn hình trò chơi
+        self.brand_text = Text(
+            text="CodenChill",
+            position=(0, -0.42),
+            origin=(0, 0),
+            scale=2.2,
+            color=Color(1.0, 1.0, 1.0, 0.75),
+        )
 
         # Ánh sáng nền vừa phải.
         self.ambient_light = AmbientLight(
@@ -85,7 +132,7 @@ class GameController(Entity):
 
     def _create_ui(self) -> None:
         """
-        Tạo giao diện chữ và nút Restart.
+        Tạo giao diện chữ, nút Restart, nút solver và nút Statistics.
         """
 
         self.title_text = Text(
@@ -111,13 +158,126 @@ class GameController(Entity):
             scale=0.85,
         )
 
+        # ----- Nút Restart -----
         self.restart_button = Button(
             text="Restart",
             position=(0.72, 0.43),
             scale=(0.18, 0.07),
-            color=color.azure,
+            color=Color(0.12, 0.45, 0.72, 1.0),       # Xanh dương nổi bật
+            highlight_color=Color(0.18, 0.56, 0.86, 1.0),
+            texture=None,
             on_click=self.restart,
         )
+        self.restart_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
+
+        # ----- Nút solver (BFS, DFS, UCS, A*) -----
+        solver_names = ["BFS", "DFS", "UCS", "A*"]
+        button_start_y = 0.33
+        button_spacing = 0.085
+
+        self.solver_buttons: list[Button] = []
+
+        for i, name in enumerate(solver_names):
+            btn = Button(
+                text=name,
+                position=(0.72, button_start_y - i * button_spacing),
+                scale=(0.18, 0.065),
+                color=Color(0.18, 0.20, 0.24, 1.0),       # Màu xám than chì sang trọng
+                highlight_color=Color(0.26, 0.29, 0.35, 1.0),
+                texture=None,
+                on_click=self._make_solver_callback(name),
+            )
+            btn.text_entity.color = Color(1.0, 0.82, 0.35, 1.0) # Chữ vàng gold tương phản cao
+            self.solver_buttons.append(btn)
+
+        # ----- Nút Statistics -----
+        self.statistics_button = Button(
+            text="Statistics",
+            position=(0.72, button_start_y - len(solver_names) * button_spacing - 0.02),
+            scale=(0.18, 0.065),
+            color=Color(0.28, 0.30, 0.34, 1.0),       # Màu xám đá sáng hơn
+            highlight_color=Color(0.38, 0.40, 0.45, 1.0),
+            texture=None,
+            on_click=self._toggle_statistics,
+        )
+        self.statistics_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
+
+    def _make_solver_callback(self, algorithm_name: str) -> Callable[[], None]:
+        """Tạo closure cho on_click của mỗi nút solver."""
+
+        def callback() -> None:
+            self._run_solver(algorithm_name)
+
+        return callback
+
+    def _run_solver(self, algorithm_name: str) -> None:
+        """
+        Chạy thuật toán solver, lưu kết quả, và bắt đầu replay.
+        """
+
+        if self.is_busy:
+            self._show_temporary_message("Đang chạy, vui lòng đợi!")
+            return
+
+        # Đóng statistics panel nếu đang mở
+        if self.statistics_panel.visible:
+            self.statistics_panel.hide()
+
+        # Kiểm tra solver đã implement chưa
+        search_fn = self.SOLVER_REGISTRY.get(algorithm_name)
+
+        if search_fn is None:
+            self._show_temporary_message(
+                f"{algorithm_name}: Chưa implement!"
+            )
+            return
+
+        # Hiển thị trạng thái đang chạy
+        self.status_text.text = f"{algorithm_name}: Đang chạy..."
+        self.status_text.color = color.yellow
+
+        # Reset game về trạng thái ban đầu trước khi chạy
+        self.restart()
+
+        # Chạy solver với profiling
+        result = run_with_profiling(algorithm_name, search_fn, self.level)
+
+        # Lưu kết quả (thay thế nếu đã chạy thuật toán này trước đó)
+        self.solver_results = [
+            r for r in self.solver_results
+            if r.algorithm != algorithm_name
+        ]
+        self.solver_results.append(result)
+
+        if not result.success:
+            self._show_temporary_message(
+                f"{algorithm_name}: Không tìm được lời giải!"
+            )
+            return
+
+        # Hiển thị kết quả tìm kiếm
+        self.status_text.text = (
+            f"{algorithm_name}: {result.solution_length} bước | "
+            f"{result.search_time:.4f}s | "
+            f"{result.memory_usage:.2f}MB"
+        )
+        self.status_text.color = color.lime
+
+        # Bắt đầu replay
+        self.replay_controller = ReplayController(
+            game=self,
+            moves=result.moves,
+            step_delay=0.4,
+        )
+        self.replay_controller.start()
+
+    def _toggle_statistics(self) -> None:
+        """Bật/tắt panel thống kê."""
+
+        if self.statistics_panel.visible:
+            self.statistics_panel.hide()
+        else:
+            self.statistics_panel.show(self.solver_results)
 
     def _setup_camera(self) -> None:
         board_width = self.level.board.width
@@ -151,17 +311,32 @@ class GameController(Entity):
             self.restart()
             return
 
+        if key == "space":
+            self.try_move(Move.SWITCH)
+            return
+
         if key in self.MOVE_KEYS:
             self.try_move(self.MOVE_KEYS[key])
             return
 
     def try_move(self, move: Move) -> None:
         """
-        Thử di chuyển block theo hướng được chọn.
+        Thử di chuyển block theo hướng được chọn (player input).
+
+        Bị block khi đang replay hoặc đã thắng.
         """
 
         if self.has_won or self.is_busy:
             return
+
+        self._execute_move(move)
+
+    def _execute_move(self, move: Move) -> None:
+        """
+        Thực hiện di chuyển block (internal).
+
+        Không kiểm tra is_busy — dùng cho cả player lẫn replay.
+        """
 
         next_state = apply_move(
             self.level.board,
@@ -170,7 +345,6 @@ class GameController(Entity):
         )
 
         if next_state is None:
-            self._show_temporary_message("Illegal move!")
             return
 
         self.state = next_state
@@ -189,10 +363,29 @@ class GameController(Entity):
 
             self.status_text.color = color.lime
 
+            # Tự động tìm màn tiếp theo
+            next_level = self._get_next_level_path()
+            if next_level:
+                self.next_level_button = Button(
+                    text="Next Level",
+                    position=(0, 0),
+                    scale=(0.22, 0.08),
+                    color=Color(0.12, 0.6, 0.3, 1.0), # Xanh lá chiến thắng
+                    highlight_color=Color(0.18, 0.75, 0.38, 1.0),
+                    texture=None,
+                    on_click=lambda: self.load_new_level(next_level)
+                )
+                self.next_level_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
+
     def restart(self) -> None:
         """
         Đưa game về trạng thái ban đầu.
         """
+
+        # Xóa nút Next Level nếu có
+        if self.next_level_button:
+            destroy(self.next_level_button)
+            self.next_level_button = None
 
         self.state = self.level.initial_state
         self.move_count = 0
@@ -207,13 +400,20 @@ class GameController(Entity):
         Cập nhật số bước và trạng thái của block.
         """
 
-        orientation_name = self.state.block.orientation.name
+        if self.state.is_split:
+            status = (
+                f"Moves: {self.move_count}\n"
+                f"Status: SPLIT (Active Cube: {self.state.active_cube})\n"
+                f"Press [SPACE] to switch control"
+            )
+        else:
+            orientation_name = self.state.block.orientation.name
+            status = (
+                f"Moves: {self.move_count}\n"
+                f"Orientation: {orientation_name}"
+            )
 
-        self.status_text.text = (
-            f"Moves: {self.move_count}\n"
-            f"Orientation: {orientation_name}"
-        )
-
+        self.status_text.text = status
         self.status_text.color = color.white
 
     def _show_temporary_message(self, message: str) -> None:
@@ -237,4 +437,58 @@ class GameController(Entity):
         if self.has_won:
             return
 
+        self._update_status_text()
+
+    def _get_next_level_path(self) -> Path | None:
+        """Tìm đường dẫn tới level tiếp theo trong thư mục basic."""
+        try:
+            folder = self.level_path.parent
+            levels = sorted([f for f in folder.glob("*.json")])
+            current_idx = levels.index(self.level_path)
+            if current_idx + 1 < len(levels):
+                return levels[current_idx + 1]
+        except Exception as e:
+            print(f"[DEBUG] Error finding next level: {e}")
+        return None
+
+    def load_new_level(self, next_level_path: Path) -> None:
+        """Dọn dẹp level cũ và tải level mới lên màn hình."""
+        # 1. Hủy render của board và block cũ
+        if self.board_renderer:
+            for entity in self.board_renderer.tile_entities:
+                destroy(entity)
+            for entity in self.board_renderer.border_entities:
+                destroy(entity)
+
+        if self.block_renderer:
+            self.block_renderer.destroy()
+
+        # Hủy nút Next Level
+        if self.next_level_button:
+            destroy(self.next_level_button)
+            self.next_level_button = None
+
+        # 2. Tải level mới
+        self.level_path = next_level_path
+        self.level = load_level(self.level_path)
+
+        # 3. Reset các biến trạng thái
+        self.state = self.level.initial_state
+        self.move_count = 0
+        self.has_won = False
+        self.is_busy = False
+        self.solver_results = []
+        if self.replay_controller:
+            self.replay_controller = None
+
+        # 4. Khởi tạo lại renderers
+        self.board_renderer = BoardRenderer(self.level.board)
+        self.block_renderer = BlockRenderer()
+        self.block_renderer.sync_with_state(self.state)
+
+        # 5. Cập nhật camera để căn giữa map mới
+        self._setup_camera()
+
+        # 6. Cập nhật lại UI text hiển thị
+        self.title_text.text = self.level.name
         self._update_status_text()
