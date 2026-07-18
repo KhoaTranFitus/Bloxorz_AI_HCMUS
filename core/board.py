@@ -38,7 +38,6 @@ class Board:
         Hiện tại FLOOR và GOAL đều có thể đỡ block.
         Logic bridge sẽ được thêm sau.
         """
-
         tile = self.get_tile(row, col)
 
         if tile == TileType.BRIDGE:
