@@ -1,0 +1,49 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.pyo
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# VS Code
+.vscode/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Pytest
+.pytest_cache/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and local settings
+*.log
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Optional: ignore local environment files
+.env
+
+# Ignore models if they are large and generated
+assets/models/
+
+# Ignore temporary files
+*.tmp
+*.swp
+*.swo
+*.bak
