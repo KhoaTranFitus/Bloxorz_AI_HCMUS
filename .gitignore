@@ -24,9 +24,6 @@ dist/
 
 # Pytest
 .pytest_cache/
-.pytype/
-.mypy_cache/
-.ruff_cache/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
@@ -50,6 +47,3 @@ assets/models/
 *.swp
 *.swo
 *.bak
-
-# Ignore local backup folders
-.backup_restore/
