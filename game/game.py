@@ -1,6 +1,7 @@
 """Main game controller."""
 
 from pathlib import Path
+from typing import Callable
 
 from ursina import (
     AmbientLight,
@@ -38,10 +39,15 @@ class GameController(Entity):
         "d": Move.RIGHT,
     }
 
-    def __init__(self, level_path: str | Path) -> None:
+    def __init__(
+        self,
+        level_path: str | Path,
+        on_back: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
 
         self.level_path = Path(level_path)
+        self.on_back = on_back
         self.level_paths = sorted(self.level_path.parent.glob("*.json"))
         self.level_index = self.level_paths.index(self.level_path)
         self.level: Level = load_level(self.level_path)
@@ -132,6 +138,15 @@ class GameController(Entity):
             color=color.orange,
             on_click=self.start_astar_autoplay,
         )
+
+        if self.on_back is not None:
+            self.back_button = Button(
+                text="Back",
+                position=(-0.72, 0.43),
+                scale=(0.18, 0.07),
+                color=color.light_gray,
+                on_click=self.on_back,
+            )
 
     def _setup_camera(self) -> None:
         board_width = self.level.board.width
