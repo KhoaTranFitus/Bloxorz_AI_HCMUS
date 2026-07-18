@@ -1,7 +1,0 @@
-{
-    "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python.condaPath": "C:\\Users\\trung\\anaconda3\\Scripts\\conda.exe",
-    "python.defaultInterpreterPath": "C:\\Users\\trung\\anaconda3\\envs\\<tên_env>\\python.exe",
-    "python.terminal.activateEnvironment": true
-}
