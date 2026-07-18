@@ -82,6 +82,12 @@ def is_block_supported(
         ):
             return False
 
+        if (
+            block.orientation == Orientation.STANDING
+            and board.get_tile(row, col) == TileType.FRAGILE
+        ):
+            return False
+
     return True
 
 
@@ -110,12 +116,40 @@ def apply_move(
     if not is_block_supported(board, state, moved_block):
         return None
 
-    return GameState(
+    provisional_state = GameState(
         block=moved_block,
         bridge_states=state.bridge_states,
         split_cubes=state.split_cubes,
         active_cube=state.active_cube,
     )
+    previously_pressed = set(get_activated_switches(board, state))
+    currently_pressed = set(get_activated_switches(board, provisional_state))
+    bridge_states = list(state.bridge_states)
+
+    for row, col in currently_pressed - previously_pressed:
+        link = board.get_switch_link(row, col)
+        if link is None:
+            continue
+        bridge_ids, action = link
+        for bridge_id in bridge_ids:
+            if action == "open":
+                bridge_states[bridge_id] = True
+            elif action == "close":
+                bridge_states[bridge_id] = False
+            else:
+                bridge_states[bridge_id] = not bridge_states[bridge_id]
+
+    next_state = GameState(
+        block=moved_block,
+        bridge_states=tuple(bridge_states),
+        split_cubes=state.split_cubes,
+        active_cube=state.active_cube,
+    )
+
+    if not is_block_supported(board, next_state, moved_block):
+        return None
+
+    return next_state
 
 
 def is_goal_state(board: Board, state: GameState) -> bool:
@@ -132,6 +166,33 @@ def is_goal_state(board: Board, state: GameState) -> bool:
         return False
 
     return board.get_tile(block.row, block.col) == TileType.GOAL
+
+
+def get_activated_switches(
+    board: Board,
+    state: GameState,
+) -> tuple[tuple[int, int], ...]:
+    """Return switches pressed by the block in this state.
+
+    A soft switch reacts to either half of a lying block. A heavy switch
+    requires the complete block weight, so it reacts only while standing.
+    """
+
+    activated: list[tuple[int, int]] = []
+    block = state.block
+
+    for row, col in block.occupied_cells():
+        tile = board.get_tile(row, col)
+
+        if tile == TileType.SOFT_SWITCH:
+            activated.append((row, col))
+        elif (
+            tile == TileType.HEAVY_SWITCH
+            and block.orientation == Orientation.STANDING
+        ):
+            activated.append((row, col))
+
+    return tuple(activated)
 
 
 def get_valid_moves(

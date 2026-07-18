@@ -11,6 +11,10 @@ from core.state import GameState
 FLOOR_COLOR = color.rgb(90, 90, 90)
 GOAL_COLOR = color.rgb(0, 0, 0)
 BLOCK_COLOR = color.rgb(220, 20, 20)
+SOFT_SWITCH_COLOR = color.rgb(255, 190, 0)
+HEAVY_SWITCH_COLOR = color.rgb(255, 0, 80)
+BRIDGE_COLOR = color.rgb(70, 150, 190)
+FRAGILE_COLOR = color.rgb(205, 175, 120)
 
 
 class BoardRenderer:
@@ -24,6 +28,7 @@ class BoardRenderer:
         self.board = board
         self.tile_entities: list[Entity] = []
         self.border_entities: list[Entity] = []
+        self.bridge_entities: dict[int, list[Entity]] = {}
 
         self._create_tiles()
 
@@ -37,10 +42,34 @@ class BoardRenderer:
 
                 if tile_type == TileType.GOAL:
                     self._create_goal(row, col)
+                elif tile_type == TileType.SOFT_SWITCH:
+                    self._create_floor(row, col, SOFT_SWITCH_COLOR)
+                elif tile_type == TileType.HEAVY_SWITCH:
+                    self._create_floor(row, col, HEAVY_SWITCH_COLOR)
+                elif tile_type == TileType.BRIDGE:
+                    bridge_id = self.board.get_bridge_id(row, col)
+                    border_start = len(self.border_entities)
+                    tile = self._create_floor(row, col, BRIDGE_COLOR)
+                    if bridge_id is not None:
+                        bridge_parts = [
+                            tile,
+                            *self.border_entities[border_start:],
+                        ]
+                        self.bridge_entities.setdefault(bridge_id, []).extend(
+                            bridge_parts
+                        )
+                elif tile_type == TileType.FRAGILE:
+                    self._create_floor(row, col, FRAGILE_COLOR)
                 else:
                     self._create_floor(row, col)
 
-    def _create_floor(self, row: int, col: int) -> None:
+    def _create_floor(
+        self,
+        row: int,
+        col: int,
+        tile_color=FLOOR_COLOR,
+        create_border: bool = True,
+    ) -> Entity:
         tile = Entity(
             model="cube",
             texture=None,
@@ -54,12 +83,23 @@ class BoardRenderer:
                 self.TILE_HEIGHT,
                 self.TILE_WIDTH,
             ),
-            color=FLOOR_COLOR,
+            color=tile_color,
             collider=None,
         )
 
         self.tile_entities.append(tile)
-        self._create_tile_border(row, col)
+        if create_border:
+            self._create_tile_border(row, col)
+        return tile
+
+    def sync_with_state(self, state: GameState) -> None:
+        for bridge_id, entities in self.bridge_entities.items():
+            is_open = (
+                bridge_id < len(state.bridge_states)
+                and state.bridge_states[bridge_id]
+            )
+            for entity in entities:
+                entity.enabled = is_open
 
     def _create_goal(self, row: int, col: int) -> None:
         """

@@ -14,6 +14,10 @@ TILE_SYMBOLS: dict[str, TileType] = {
     ".": TileType.VOID,
     "#": TileType.FLOOR,
     "G": TileType.GOAL,
+    "S": TileType.SOFT_SWITCH,
+    "H": TileType.HEAVY_SWITCH,
+    "B": TileType.BRIDGE,
+    "F": TileType.FRAGILE,
 }
 
 
@@ -92,10 +96,61 @@ def load_level(file_path: str | Path) -> Level:
 
         tiles.append(tuple(converted_row))
 
+    bridges_data = data.get("bridges", [])
+    bridge_count = len(bridges_data)
+    bridge_ids = [
+        [-1 for _ in range(len(board_data[0]))]
+        for _ in range(len(board_data))
+    ]
+    initial_bridge_states = [False] * bridge_count
+
+    for expected_id, bridge_data in enumerate(bridges_data):
+        bridge_id = int(bridge_data.get("id", expected_id))
+        if bridge_id != expected_id:
+            raise ValueError("Bridge IDs must be consecutive starting at 0")
+
+        initial_bridge_states[bridge_id] = bool(
+            bridge_data.get("initially_open", False)
+        )
+
+        for cell in bridge_data.get("cells", []):
+            row, col = int(cell[0]), int(cell[1])
+            if not (0 <= row < len(board_data) and 0 <= col < len(board_data[0])):
+                raise ValueError(f"Bridge cell is outside board: ({row}, {col})")
+            if tiles[row][col] != TileType.BRIDGE:
+                raise ValueError(f"Bridge cell ({row}, {col}) must use symbol 'B'")
+            bridge_ids[row][col] = bridge_id
+
+    for row_index, row in enumerate(tiles):
+        for col_index, tile in enumerate(row):
+            if tile == TileType.BRIDGE and bridge_ids[row_index][col_index] < 0:
+                raise ValueError(
+                    f"Bridge tile ({row_index}, {col_index}) has no bridge definition"
+                )
+
+    switch_links = []
+    for switch_data in data.get("switches", []):
+        row = int(switch_data["row"])
+        col = int(switch_data["col"])
+        if not (0 <= row < len(board_data) and 0 <= col < len(board_data[0])):
+            raise ValueError(f"Switch is outside board: ({row}, {col})")
+        if tiles[row][col] not in {TileType.SOFT_SWITCH, TileType.HEAVY_SWITCH}:
+            raise ValueError(f"Switch definition ({row}, {col}) is not on S or H")
+
+        targets = tuple(int(value) for value in switch_data.get("bridge_ids", []))
+        if any(target < 0 or target >= bridge_count for target in targets):
+            raise ValueError(f"Switch ({row}, {col}) targets an unknown bridge")
+        action = str(switch_data.get("action", "open")).lower()
+        if action not in {"open", "close", "toggle"}:
+            raise ValueError(f"Unknown switch action: {action}")
+        switch_links.append((row, col, targets, action))
+
     board = Board(
         width=len(board_data[0]),
         height=len(board_data),
         tiles=tuple(tiles),
+        bridge_ids=tuple(tuple(row) for row in bridge_ids),
+        switch_links=tuple(switch_links),
     )
 
     start_data = data["start"]
@@ -118,11 +173,14 @@ def load_level(file_path: str | Path) -> Level:
         orientation=ORIENTATION_NAMES[orientation_name],
     )
 
-    initial_state = GameState(block=start_block)
+    initial_state = GameState(
+        block=start_block,
+        bridge_states=tuple(initial_bridge_states),
+    )
 
     # Kiểm tra block ban đầu có thực sự nằm trên board hay không.
     for row, col in start_block.occupied_cells():
-        if not board.is_walkable(row, col):
+        if not board.is_walkable(row, col, initial_state.bridge_states):
             raise ValueError(
                 f"Initial block is not supported at ({row}, {col})"
             )
