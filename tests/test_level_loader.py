@@ -1,9 +1,17 @@
 """Loader tests for optional soft/heavy switch and bridge metadata."""
 
 import json
+from pathlib import Path
 
 from core.enums import TileType
 from core.level_loader import load_level
+
+
+def test_all_bundled_levels_load_successfully() -> None:
+    levels_dir = Path(__file__).parents[1] / "levels"
+
+    for level_path in levels_dir.rglob("*.json"):
+        load_level(level_path)
 
 
 def test_loader_preserves_split_symbol_and_loads_switch_metadata(
@@ -21,6 +29,12 @@ def test_loader_preserves_split_symbol_and_loads_switch_metadata(
             }
         ],
         "switches": [
+            {
+                "row": 0,
+                "col": 1,
+                "cube_a": [0, 0],
+                "cube_b": [0, 5],
+            },
             {
                 "row": 0,
                 "col": 2,
@@ -45,4 +59,5 @@ def test_loader_preserves_split_symbol_and_loads_switch_metadata(
     assert level.board.get_tile(0, 3) == TileType.HEAVY_SWITCH
     assert level.board.get_tile(0, 4) == TileType.BRIDGE
     assert level.board.get_bridge_id(0, 4) == 0
+    assert level.board.get_split_targets(0, 1) == ((0, 0), (0, 5))
     assert level.initial_state.bridge_states == (False,)

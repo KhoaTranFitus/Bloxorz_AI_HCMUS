@@ -5,8 +5,6 @@ from typing import Any, Callable
 
 from ursina import (
     Button,
-    Color,
-    DirectionalLight,
     Entity,
     Text,
     Vec3,
@@ -17,7 +15,9 @@ from ursina import (
 )
 
 from ai.bfs import bfs_search
-# from ai.dfs import dfs_solver 
+from ai.dfs import dfs_search
+from ai.ucs import ucs_search
+from ai.astar import astar_search
 from ai.profiler import run_with_profiling
 from ai.result import SolveResult
 BACKGROUND_COLOR = color.rgb32(45, 55, 70)
@@ -32,11 +32,8 @@ from game.renderer import BlockRenderer, BoardRenderer
 from game.replay_controller import ReplayController
 from gui.statistics_panel import StatisticsPanel
 
-from collections.abc import Callable
-
 class GameController(Entity):
     MOVE_ANIMATION_TIME = 0.28
-    FALL_ANIMATION_TIME = 1.05
     FALL_ROLL_TIME = 0.30
     FALL_DROP_TIME = 0.70
     FALL_RESET_DELAY = FALL_ROLL_TIME + FALL_DROP_TIME + 0.10
@@ -54,13 +51,12 @@ class GameController(Entity):
         "d": Move.RIGHT,
     }
 
-    # Registry: tên thuật toán → hàm search tương ứng.
-    # Khi DFS/UCS/A* được viết xong, chỉ cần thêm vào đây.
+    # Registry ánh xạ tên thuật toán tới hàm tìm kiếm tương ứng.
     SOLVER_REGISTRY: dict[str, Callable[..., dict[str, Any] | None] | None] = {
         "BFS": bfs_search,
-        "DFS": None ,    # Chưa implement
-        "UCS": None,    # Chưa implement
-        "A*":  None,    # Chưa implement
+        "DFS": dfs_search,
+        "UCS": ucs_search,
+        "A*": astar_search,
     }
 
     def __init__(
@@ -82,8 +78,6 @@ class GameController(Entity):
         self._transition_generation = 0
         self._cleaned_up = False
 
-        print("[DEBUG] NEW GameController loaded — solver buttons active")
-
         # Lưu trữ kết quả chạy solver (dùng cho Statistics panel)
         self.solver_results: list[SolveResult] = []
 
@@ -95,7 +89,10 @@ class GameController(Entity):
 
         self.next_level_button: Button | None = None
 
-        self.board_renderer = BoardRenderer(self.level.board)
+        self.board_renderer = BoardRenderer(
+            self.level.board,
+            self.state.bridge_states,
+        )
 
         self.block_renderer = BlockRenderer()
         self.block_renderer.sync_with_state(self.state,reset_rotation=True,)
@@ -110,10 +107,13 @@ class GameController(Entity):
         self.back_button = Button(
             parent=camera.ui,
             text="Back",
-            position=(-0.72, 0.43),
+            position=(-0.80, 0.43),
             scale=(0.14, 0.07),
             color=color.rgb32(80, 90, 110),
+            highlight_color=color.rgb32(105, 115, 135),
+            texture=None,
         )
+        self.back_button.text_entity.color = color.rgb32(255, 255, 255)
 
         self.back_button.on_click = self._go_back
 
@@ -139,7 +139,7 @@ class GameController(Entity):
             position=(0, -0.42),
             origin=(0, 0),
             scale=2.2,
-            color=Color(1.0, 1.0, 1.0, 0.75),
+            color=color.rgb32(255, 255, 255, 191),
         )
         """
         Thiết lập màu nền và ánh sáng cho game.
@@ -148,23 +148,6 @@ class GameController(Entity):
         # Màu nền thật sự phía sau toàn bộ bàn chơi.
         camera.clear_color = BACKGROUND_COLOR
 
-        # # Ánh sáng môi trường giúp các mặt không bị tối đen.
-        # self.ambient_light = AmbientLight(
-        #     color=AMBIENT_LIGHT_COLOR
-        # )
-
-        # # Ánh sáng chính tạo chiều sâu cho block và các viên gạch.
-        # self.directional_light = DirectionalLight(
-        #     shadows=False
-        # )
-
-        # self.directional_light.color = (
-        #     DIRECTIONAL_LIGHT_COLOR
-        # )
-
-        # self.directional_light.look_at(
-        #     Vec3(1, -2, 1)
-        # )
     def _create_ui(self) -> None:
         """
         Tạo giao diện chữ, nút Restart, nút solver và nút Statistics.
@@ -172,26 +155,17 @@ class GameController(Entity):
 
         self.title_text = Text(
             text=self.level.name,
-            position=(-0.87, 0.46),
+            position=(0, 0.46),
+            origin=(0, 0),
             scale=1.3,
-            color=color.rgb(235, 240, 245),
+            color=color.rgb32(235, 240, 245),
         )
 
         self.status_text = Text(
             text="",
-            position=(-0.87, 0.40),
+            position=(-0.87, 0.34),
             scale=1.0,
-            color=color.white,
-        )
-
-        self.control_text = Text(
-            text=(
-                "Move: WASD / Arrow keys\n"
-                "Restart: R\n"
-            ),
-            position=(-0.87, 0.31),
-            scale=0.85,
-            color=color.rgb(195, 205, 215),
+            color=color.rgb32(255, 255, 255),
         )
 
         # ----- Nút Restart -----
@@ -199,12 +173,12 @@ class GameController(Entity):
             text="Restart",
             position=(0.72, 0.43),
             scale=(0.18, 0.07),
-            color=Color(0.12, 0.45, 0.72, 1.0),       # Xanh dương nổi bật
-            highlight_color=Color(0.18, 0.56, 0.86, 1.0),
+            color=color.rgb32(31, 115, 184),       # Xanh dương nổi bật
+            highlight_color=color.rgb32(46, 143, 219),
             texture=None,
             on_click=self.restart,
         )
-        self.restart_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
+        self.restart_button.text_entity.color = color.rgb32(255, 255, 255)
 
         # ----- Nút solver (BFS, DFS, UCS, A*) -----
         solver_names = ["BFS", "DFS", "UCS", "A*"]
@@ -218,12 +192,12 @@ class GameController(Entity):
                 text=name,
                 position=(0.72, button_start_y - i * button_spacing),
                 scale=(0.18, 0.065),
-                color=Color(0.18, 0.20, 0.24, 1.0),       # Màu xám than chì sang trọng
-                highlight_color=Color(0.26, 0.29, 0.35, 1.0),
+                color=color.rgb32(46, 51, 61),       # Màu xám than chì sang trọng
+                highlight_color=color.rgb32(66, 74, 89),
                 texture=None,
                 on_click=self._make_solver_callback(name),
             )
-            btn.text_entity.color = Color(1.0, 0.82, 0.35, 1.0) # Chữ vàng gold tương phản cao
+            btn.text_entity.color = color.rgb32(255, 209, 89) # Chữ vàng gold tương phản cao
             self.solver_buttons.append(btn)
 
         # ----- Nút Statistics -----
@@ -231,12 +205,24 @@ class GameController(Entity):
             text="Statistics",
             position=(0.72, button_start_y - len(solver_names) * button_spacing - 0.02),
             scale=(0.18, 0.065),
-            color=Color(0.28, 0.30, 0.34, 1.0),       # Màu xám đá sáng hơn
-            highlight_color=Color(0.38, 0.40, 0.45, 1.0),
+            color=color.rgb32(71, 77, 87),       # Màu xám đá sáng hơn
+            highlight_color=color.rgb32(97, 102, 115),
             texture=None,
             on_click=self._toggle_statistics,
         )
-        self.statistics_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
+        self.statistics_button.text_entity.color = color.rgb32(255, 255, 255)
+
+        # ----- Nút chuyển sang màn kế tiếp -----
+        self.next_level_button = Button(
+            text="Next",
+            position=(-0.64, 0.43),
+            scale=(0.14, 0.07),
+            color=color.rgb32(80, 90, 110),
+            highlight_color=color.rgb32(105, 115, 135),
+            texture=None,
+            on_click=self._go_to_next_level,
+        )
+        self.next_level_button.text_entity.color = color.rgb32(255, 255, 255)
 
     def _make_solver_callback(self, algorithm_name: str) -> Callable[[], None]:
         """Tạo closure cho on_click của mỗi nút solver."""
@@ -274,7 +260,7 @@ class GameController(Entity):
 
         # Hiển thị trạng thái đang chạy
         self.status_text.text = f"{algorithm_name}: Đang chạy..."
-        self.status_text.color = color.yellow
+        self.status_text.color = color.rgb32(255, 255, 0)
 
         # Reset game về trạng thái ban đầu trước khi chạy
         self.restart()
@@ -301,7 +287,7 @@ class GameController(Entity):
             f"{result.search_time:.4f}s | "
             f"{result.memory_usage:.2f}MB"
         )
-        self.status_text.color = color.lime
+        self.status_text.color = color.rgb32(0, 255, 0)
 
         # Bắt đầu replay
         self.replay_controller = ReplayController(
@@ -479,6 +465,8 @@ class GameController(Entity):
         self.move_count += 1
         self.is_busy = False
 
+        self.board_renderer.sync_bridge_states(self.state.bridge_states)
+
         self._update_status_text()
 
         if is_goal_state(self.level.board, self.state):
@@ -489,21 +477,8 @@ class GameController(Entity):
                 f"Moves: {self.move_count}"
             )
 
-            self.status_text.color = color.lime
+            self.status_text.color = color.rgb32(0, 255, 0)
 
-            # Tự động tìm màn tiếp theo
-            next_level = self._get_next_level_path()
-            if next_level:
-                self.next_level_button = Button(
-                    text="Next Level",
-                    position=(0, 0),
-                    scale=(0.22, 0.08),
-                    color=Color(0.12, 0.6, 0.3, 1.0), # Xanh lá chiến thắng
-                    highlight_color=Color(0.18, 0.75, 0.38, 1.0),
-                    texture=None,
-                    on_click=lambda: self.load_new_level(next_level)
-                )
-                self.next_level_button.text_entity.color = Color(1.0, 1.0, 1.0, 1.0)
     def _reset_after_fall(self) -> None:
         """
         Đưa block về trạng thái đầu sau khi rơi.
@@ -518,6 +493,7 @@ class GameController(Entity):
             self.state,
             reset_rotation=True,
         )
+        self.board_renderer.sync_bridge_states(self.state.bridge_states)
 
         self._update_status_text()
 
@@ -532,11 +508,6 @@ class GameController(Entity):
             self.replay_controller.stop()
             self.replay_controller = None
 
-        # Xóa nút Next Level nếu có
-        if self.next_level_button:
-            destroy(self.next_level_button)
-            self.next_level_button = None
-
         self.state = self.level.initial_state
         self.move_count = 0
         self.has_won = False
@@ -544,6 +515,7 @@ class GameController(Entity):
 
         self.block_renderer.cancel_animation()
         self.block_renderer.sync_with_state(self.state,reset_rotation=True,)
+        self.board_renderer.sync_bridge_states(self.state.bridge_states)
         self._update_status_text()
 
     def _update_status_text(self) -> None:
@@ -565,7 +537,7 @@ class GameController(Entity):
             )
 
         self.status_text.text = status
-        self.status_text.color = color.white
+        self.status_text.color = color.rgb32(255, 255, 255)
 
     def _show_temporary_message(self, message: str) -> None:
         """
@@ -573,7 +545,7 @@ class GameController(Entity):
         """
 
         self.status_text.text = message
-        self.status_text.color = color.red
+        self.status_text.color = color.rgb32(255, 0, 0)
 
         invoke(
             self._restore_status,
@@ -602,6 +574,15 @@ class GameController(Entity):
             print(f"[DEBUG] Error finding next level: {e}")
         return None
 
+    def _go_to_next_level(self) -> None:
+        """Chuyển sang level kế tiếp khi người chơi bấm Next."""
+        next_level = self._get_next_level_path()
+        if next_level is None:
+            self._show_temporary_message("This is the last level!")
+            return
+
+        self.load_new_level(next_level)
+
     def load_new_level(self, next_level_path: Path) -> None:
         """Dọn dẹp level cũ và tải level mới lên màn hình."""
         # 1. Hủy render của board và block cũ
@@ -612,11 +593,6 @@ class GameController(Entity):
 
         if self.block_renderer:
             self.block_renderer.destroy()
-
-        # Hủy nút Next Level
-        if self.next_level_button:
-            destroy(self.next_level_button)
-            self.next_level_button = None
 
         # 2. Tải level mới
         self.level_path = next_level_path
@@ -633,7 +609,10 @@ class GameController(Entity):
             self.replay_controller = None
 
         # 4. Khởi tạo lại renderers
-        self.board_renderer = BoardRenderer(self.level.board)
+        self.board_renderer = BoardRenderer(
+            self.level.board,
+            self.state.bridge_states,
+        )
         self.block_renderer = BlockRenderer()
         self.block_renderer.sync_with_state(self.state, reset_rotation=True)
 
@@ -667,7 +646,6 @@ class GameController(Entity):
             "statistics_button",
             "title_text",
             "status_text",
-            "control_text",
             "brand_text",
             "bg_plane",
         ):

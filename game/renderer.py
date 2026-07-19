@@ -1,6 +1,6 @@
 """3D renderer for the Bloxorz board and block."""
 
-from ursina import Entity, Vec3, color, destroy, Text, scene
+from ursina import Entity, Vec3, color, destroy, scene
 
 from core.board import Board
 from core.enums import Move, Orientation, TileType
@@ -19,12 +19,12 @@ BLOCK_COLOR = color.rgb32(220, 30, 30)
 
 class BoardRenderer:
     TILE_HEIGHT = 0.20
-    TILE_WIDTH = 0.94
 
-    # Viền rộng bao nhiêu.
-    BORDER_SIZE = 0.07
-
-    def __init__(self, board: Board) -> None:
+    def __init__(
+        self,
+        board: Board,
+        bridge_states: tuple[bool, ...] = (),
+    ) -> None:
         self.board = board
 
         # Keep every board entity under one owner.  Destroying this root makes
@@ -34,8 +34,10 @@ class BoardRenderer:
 
         self.tile_entities: list[Entity] = []
         self.border_entities: list[Entity] = []
+        self.bridge_entities: dict[int, list[Entity]] = {}
 
         self._create_tiles()
+        self.sync_bridge_states(bridge_states)
 
     def _create_tiles(self) -> None:
         """Create tiles in row-major order: left-to-right, top-to-bottom."""
@@ -67,11 +69,13 @@ class BoardRenderer:
 
         tile_color = FLOOR_COLOR
         if tile_type == TileType.SPLIT_SWITCH:
-            tile_color = color.rgb(240, 100, 20)
+            tile_color = color.rgb32(240, 100, 20)
         elif tile_type == TileType.SOFT_SWITCH:
-            tile_color = color.rgb(220, 220, 220)
+            tile_color = color.rgb32(220, 220, 220)
         elif tile_type == TileType.HEAVY_SWITCH:
-            tile_color = color.rgb(240, 220, 50)
+            tile_color = color.rgb32(240, 220, 50)
+        elif tile_type == TileType.FRAGILE:
+            tile_color = color.rgb32(240, 125, 25)
 
         # Đế đen tạo viền
         border = Entity(
@@ -120,19 +124,13 @@ class BoardRenderer:
         self.border_entities.append(border)
         self.tile_entities.append(tile)
 
-        # Thêm kí hiệu chiếc kéo cho ô chia đôi
-        # if self.tile_entities == TileType.SPLIT_SWITCH:
-        #     symbol = Text(
-        #         text="X",
-        #         parent=scene,
-        #         position=Vec3(col, self.TILE_HEIGHT / 2 + 0.02, -row),
-        #         scale=15,
-        #         color=color.black, # Màu đen nổi bật trên nền cam
-        #         origin=(0, 0),
-        #     )
-        #     symbol.rotation_x = 90
-        #     # Cần lưu trữ để hủy khi đổi level
-        #     self.tile_entities.append(symbol)
+        if tile_type == TileType.BRIDGE:
+            bridge_id = self.board.get_bridge_id(row, col)
+            if bridge_id is not None:
+                self.bridge_entities.setdefault(bridge_id, []).extend(
+                    (border, tile)
+                )
+
     def _create_goal(self, row: int, col: int, draw_index: int) -> None:
         """
         Goal là một ô màu đen thấp hơn sàn.
@@ -165,9 +163,23 @@ class BoardRenderer:
         destroy(self.root)
         self.tile_entities.clear()
         self.border_entities.clear()
+        self.bridge_entities.clear()
+
+    def sync_bridge_states(self, bridge_states: tuple[bool, ...]) -> None:
+        """Show only bridges whose logical state is currently open."""
+        for bridge_id, entities in self.bridge_entities.items():
+            is_open = (
+                bridge_id < len(bridge_states)
+                and bridge_states[bridge_id]
+            )
+            for entity in entities:
+                entity.visible = is_open
 
 class BlockRenderer:
     TILE_TOP_Y = BoardRenderer.TILE_HEIGHT / 2
+    CUBE_INNER_SCALE = Vec3(0.76, 0.76, 0.76)
+    CUBE_OUTLINE_SCALE = Vec3(0.84, 0.84, 0.84)
+    CUBE_BASE_ROTATION = Vec3(0, 0, 0)
 
     def __init__(self) -> None:
         # Outline entity (black) and inner block (red) for the active block/cube
@@ -185,7 +197,7 @@ class BlockRenderer:
             parent=self.root,
             model="cube",
             texture="white_cube",
-            color=color.rgb(25, 25, 28),
+            color=color.rgb32(25, 25, 28),
             scale=Vec3(0.84, 2.08, 0.84),
             position=Vec3(0, 0, 0),
         )
@@ -209,110 +221,20 @@ class BlockRenderer:
 
         # Inactive cube entities (only shown when split)
         self.inactive_outline = Entity(
-            parent=self.root,
+            parent=scene,
             model="cube",
             texture="white_cube",
-            color=color.black,
+            color=color.rgb32(0, 0, 0),
             visible=False,
         )
 
         self.inactive_entity = Entity(
             model="cube",
             texture="white_cube",
-            color=color.rgb(140, 40, 40), # Màu đỏ sẫm hơn để biểu thị bị động
-            parent=self.root,
+            color=color.rgb32(140, 40, 40), # Màu đỏ sẫm hơn để biểu thị bị động
+            parent=scene,
             visible=False,
         )
-
-    # def sync_with_state(self, state: GameState) -> None:
-    #     if state.is_split:
-    #         # Hiện khối bị động
-    #         self.inactive_outline.visible = True
-    #         self.inactive_entity.visible = True
-
-    #         cubes = state.split_cubes
-    #         active_idx = state.active_cube
-    #         inactive_idx = 1 - active_idx
-
-    #         active_pos = cubes[active_idx]
-    #         inactive_pos = cubes[inactive_idx]
-
-    #         # 1. Vẽ khối chủ động
-    #         inner = Vec3(0.76, 0.76, 0.76)
-    #         outline = inner + Vec3(0.06, 0.06, 0.06)
-
-    #         self.outline.scale = outline
-    #         self.entity.scale = inner
-
-    #         pos_active = Vec3(active_pos[1], self.TILE_TOP_Y + 0.38, -active_pos[0])
-    #         self.outline.position = pos_active
-    #         self.entity.position = pos_active
-
-    #         # 2. Vẽ khối bị động
-    #         self.inactive_outline.scale = outline
-    #         self.inactive_entity.scale = inner
-
-    #         pos_inactive = Vec3(inactive_pos[1], self.TILE_TOP_Y + 0.38, -inactive_pos[0])
-    #         self.inactive_outline.position = pos_inactive
-    #         self.inactive_entity.position = pos_inactive
-
-    #     else:
-    #         # Ẩn khối bị động
-    #         # self.inactive_outline.visible = False
-    #         # self.inactive_entity.visible = False
-
-    #         # block = state.block
-
-    #         if block.orientation == Orientation.STANDING:
-    #             inner = Vec3(0.76, 2.0, 0.76)
-    #             outline = inner + Vec3(0.06, 0.06, 0.06)
-
-    #             self.outline.scale = outline
-    #             self.entity.scale = inner
-
-    #             pos = Vec3(block.col, self.TILE_TOP_Y + 1.0, -block.row)
-    #             self.outline.position = pos
-    #             self.entity.position = pos
-
-    #         elif block.orientation == Orientation.HORIZONTAL:
-    #             inner = Vec3(2.0, 0.76, 0.76)
-    #             outline = inner + Vec3(0.06, 0.06, 0.06)
-
-    #             self.outline.scale = outline
-    #             self.entity.scale = inner
-
-    #             pos = Vec3(block.col + 0.5, self.TILE_TOP_Y + 0.38, -block.row)
-    #             self.outline.position = pos
-    #             self.entity.position = pos
-
-    #         elif block.orientation == Orientation.VERTICAL:
-    #             inner = Vec3(0.76, 0.76, 2.0)
-    #             outline = inner + Vec3(0.06, 0.06, 0.06)
-
-    #             self.outline.scale = outline
-    #             self.entity.scale = inner
-
-    #             pos = Vec3(block.col, self.TILE_TOP_Y + 0.38, -(block.row + 0.5))
-    #             self.outline.position = pos
-    #             self.entity.position = pos
-
-    #         elif block.orientation == Orientation.CUBE:
-    #             inner = Vec3(0.76, 0.76, 0.76)
-    #             outline = inner + Vec3(0.06, 0.06, 0.06)
-
-    #             self.outline.scale = outline
-    #             self.entity.scale = inner
-
-    #             pos = Vec3(block.col, self.TILE_TOP_Y + 0.38, -block.row)
-    #             self.outline.position = pos
-    #             self.entity.position = pos
-
-    #         else:
-    #             raise ValueError(
-    #                 f"Unsupported orientation: {block.orientation}"
-    #             )
-
-    #     self.entity.rotation = Vec3(0, 0, 0)
 
     def _get_position(self, state: GameState) -> Vec3:
         """
@@ -341,6 +263,13 @@ class BlockRenderer:
                 self.TILE_TOP_Y + 0.38,
                 -(block.row + 0.5),
             )
+        if block.orientation == Orientation.CUBE:
+            return Vec3(
+                block.col,
+                self.TILE_TOP_Y + 0.38,
+                -block.row,
+            )
+
 
         raise ValueError(
             f"Unsupported orientation: {block.orientation}"
@@ -366,6 +295,8 @@ class BlockRenderer:
         if orientation == Orientation.VERTICAL:
             # Block nằm theo trục Z.
             return Vec3(90, 0, 0)
+        if orientation == Orientation.CUBE:
+            return Vec3(0, 0, 0)
 
         raise ValueError(
             f"Unsupported orientation: {orientation}"
@@ -386,6 +317,52 @@ class BlockRenderer:
         """
 
         self.animator.clear_roll_pivot()
+
+        if state.is_split:
+            active_idx = state.active_cube if state.active_cube is not None else 0
+            inactive_idx = 1 - active_idx
+            active_row, active_col = state.split_cubes[active_idx]
+            inactive_row, inactive_col = state.split_cubes[inactive_idx]
+
+            self.entity.scale = self.CUBE_INNER_SCALE
+            self.outline.scale = self.CUBE_OUTLINE_SCALE
+            self.entity.position = Vec3(0, 0, 0)
+            self.outline.position = Vec3(0, 0, 0)
+
+            self.inactive_entity.visible = True
+            self.inactive_outline.visible = True
+            self.inactive_entity.scale = self.CUBE_INNER_SCALE
+            self.inactive_outline.scale = self.CUBE_OUTLINE_SCALE
+            self.inactive_entity.rotation = self.CUBE_BASE_ROTATION
+            self.inactive_outline.rotation = self.CUBE_BASE_ROTATION
+
+            inactive_position = Vec3(
+                inactive_col,
+                self.TILE_TOP_Y + 0.38,
+                -inactive_row,
+            )
+            self.inactive_entity.position = inactive_position
+            self.inactive_outline.position = inactive_position
+            self.root.position = Vec3(
+                active_col,
+                self.TILE_TOP_Y + 0.38,
+                -active_row,
+            )
+            self.root.rotation = self.CUBE_BASE_ROTATION
+            return
+
+        self.inactive_entity.visible = False
+        self.inactive_outline.visible = False
+        self.inactive_entity.position = Vec3(0, 0, 0)
+        self.inactive_outline.position = Vec3(0, 0, 0)
+
+        # The normal block always has a vertical 1x2 mesh. Its orientation is
+        # represented only by root.rotation; changing both scale and rotation
+        # would apply the orientation twice.
+        self.entity.scale = Vec3(0.76, 2.0, 0.76)
+        self.outline.scale = Vec3(0.84, 2.08, 0.84)
+        self.entity.position = Vec3(0, 0, 0)
+        self.outline.position = Vec3(0, 0, 0)
         self.root.position = self._get_position(state)
 
         if reset_rotation:
@@ -404,6 +381,17 @@ class BlockRenderer:
         """
         Animation lăn block đến trạng thái hợp lệ tiếp theo.
         """
+
+        # A separated cube translates independently and SWITCH has no roll
+        # direction. Syncing also swaps the active/inactive visuals correctly.
+        if current_state.is_split:
+            self.animator.animate_split_to_state(
+                current_state=current_state,
+                next_state=next_state,
+                move=move,
+                duration=duration,
+            )
+            return
 
         self.animator.animate_to_state(
             current_state=current_state,
@@ -432,4 +420,6 @@ class BlockRenderer:
 
     def destroy(self) -> None:
         self.animator.destroy()
+        destroy(self.inactive_outline)
+        destroy(self.inactive_entity)
         destroy(self.root)

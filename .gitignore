@@ -1,0 +1,15 @@
+# 1. Bỏ qua tất cả mọi thứ trong thư mục
+*
+
+# 2. Ngoại trừ các thư mục con (để Git có thể quét vào bên trong tìm code)
+!*/
+
+# 3. CHỈ CHO PHÉP đẩy các file code Python
+!*.py 
+!*.json
+
+# 4. Cho phép đẩy chính file .gitignore này
+!.gitignore
+
+# 5. Cho phép đẩy file hướng dẫn (nếu có)
+!README.md

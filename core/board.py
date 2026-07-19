@@ -13,6 +13,9 @@ class Board:
     switch_links: tuple[
         tuple[int, int, tuple[int, ...], str], ...
     ] = ()
+    split_targets: tuple[
+        tuple[int, int, tuple[int, int], tuple[int, int]], ...
+    ] = ()
 
     def is_inside(self, row: int, col: int) -> bool:
         return (
@@ -54,6 +57,7 @@ class Board:
             TileType.SPLIT_SWITCH,
             TileType.SOFT_SWITCH,
             TileType.HEAVY_SWITCH,
+            TileType.FRAGILE,
         }
 
     def get_bridge_id(self, row: int, col: int) -> int | None:
@@ -71,6 +75,17 @@ class Board:
         for switch_row, switch_col, bridge_ids, action in self.switch_links:
             if (row, col) == (switch_row, switch_col):
                 return bridge_ids, action
+
+        return None
+
+    def get_split_targets(
+        self,
+        row: int,
+        col: int,
+    ) -> tuple[tuple[int, int], tuple[int, int]] | None:
+        for switch_row, switch_col, cube_a, cube_b in self.split_targets:
+            if (row, col) == (switch_row, switch_col):
+                return cube_a, cube_b
 
         return None
 

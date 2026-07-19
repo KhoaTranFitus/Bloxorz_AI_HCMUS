@@ -141,3 +141,54 @@ def test_split_cube_can_open_bridge_with_soft_switch() -> None:
 
     assert next_state is not None
     assert next_state.bridge_states == (True,)
+
+
+def test_split_switch_uses_configured_cube_targets() -> None:
+    board = Board(
+        width=6,
+        height=1,
+        tiles=((
+            TileType.FLOOR,
+            TileType.FLOOR,
+            TileType.SPLIT_SWITCH,
+            TileType.FLOOR,
+            TileType.FLOOR,
+            TileType.FLOOR,
+        ),),
+        split_targets=((0, 2, (0, 0), (0, 5)),),
+    )
+    state = GameState(Block(0, 0, Orientation.HORIZONTAL))
+
+    result = apply_move(board, state, Move.RIGHT)
+
+    assert result is not None
+    assert result.split_cubes == ((0, 0), (0, 5))
+    assert result.active_cube == 0
+
+
+def test_block_may_lie_across_fragile_tile() -> None:
+    board = _single_row_board(
+        TileType.FLOOR,
+        TileType.FRAGILE,
+        TileType.FLOOR,
+        TileType.FLOOR,
+    )
+    state = GameState(Block(0, 3, Orientation.STANDING))
+
+    result = apply_move(board, state, Move.LEFT)
+
+    assert result is not None
+    assert result.block == Block(0, 1, Orientation.HORIZONTAL)
+
+
+def test_block_may_not_stand_on_fragile_tile() -> None:
+    board = _single_row_board(
+        TileType.FRAGILE,
+        TileType.FLOOR,
+        TileType.FLOOR,
+    )
+    state = GameState(Block(0, 1, Orientation.HORIZONTAL))
+
+    result = apply_move(board, state, Move.LEFT)
+
+    assert result is None

@@ -74,6 +74,14 @@ def is_block_supported(
     Kiểm tra tất cả ô block chiếm đều có thể đỡ block.
     """
 
+    # Gạch mềm chỉ đỡ được block khi nằm ngang hoặc nằm dọc. Khi block
+    # đứng thẳng, toàn bộ trọng lượng dồn lên một ô và gạch sẽ vỡ.
+    if (
+        block.orientation == Orientation.STANDING
+        and board.get_tile(block.row, block.col) == TileType.FRAGILE
+    ):
+        return False
+
     for row, col in block.occupied_cells():
         if not board.is_walkable(
             row,
@@ -95,6 +103,15 @@ def find_split_targets(
     Tìm 2 ô lân cận phù hợp để đặt 2 khối lập phương khi block bị tách.
     Thứ tự ưu tiên: cặp ô ngang, rồi đến cặp ô dọc, cuối cùng là bất kỳ cặp ô nào walkable.
     """
+    configured_targets = board.get_split_targets(row, col)
+    if configured_targets is not None:
+        if all(
+            board.is_walkable(r, c, bridge_states)
+            for r, c in configured_targets
+        ):
+            return configured_targets
+        return None
+
     horizontal = [(row, col - 1), (row, col + 1)]
     vertical = [(row - 1, col), (row + 1, col)]
 
