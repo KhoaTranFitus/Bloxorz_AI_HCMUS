@@ -13,7 +13,7 @@ class DFSSolver(BaseSolver):
     Sử dụng Stack (list) để duyệt các node.
     """
 
-    def solve(self, board: Board, initial_state: GameState) -> SearchResult:
+    def dfs_solve(self, board: Board, initial_state: GameState) -> SearchResult:
         profiler = Profiler()
         profiler.start()
 

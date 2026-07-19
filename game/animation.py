@@ -23,6 +23,7 @@ class BlockAnimator:
         self.get_position = get_position
         self.sync_with_state = sync_with_state
         self._roll_pivot: Entity | None = None
+        self._animation_generation = 0
 
     @staticmethod
     def _get_rotation_delta(move: Move) -> Vec3:
@@ -102,13 +103,19 @@ class BlockAnimator:
         duration: float = 0.2,
     ) -> None:
         """Roll the block to a valid next state."""
+        self._animation_generation += 1
+        generation = self._animation_generation
         self._begin_edge_roll(current_state, move, duration)
         invoke(
-            self.sync_with_state,
+            self._sync_if_current,
+            generation,
             next_state,
-            True,
             delay=duration,
         )
+
+    def _sync_if_current(self, generation: int, state: GameState) -> None:
+        if generation == self._animation_generation:
+            self.sync_with_state(state, True)
 
     def animate_fall(
         self,
@@ -118,8 +125,19 @@ class BlockAnimator:
         fall_duration: float = 0.65,
     ) -> None:
         """Roll the block over an unsupported edge, then drop it."""
+        self._animation_generation += 1
+        generation = self._animation_generation
         self._begin_edge_roll(current_state, move, roll_duration)
-        invoke(self._drop_down, fall_duration, delay=roll_duration)
+        invoke(
+            self._drop_down_if_current,
+            generation,
+            fall_duration,
+            delay=roll_duration,
+        )
+
+    def _drop_down_if_current(self, generation: int, duration: float) -> None:
+        if generation == self._animation_generation:
+            self._drop_down(duration)
 
     def _drop_down(self, duration: float) -> None:
         self.clear_roll_pivot()
@@ -137,4 +155,9 @@ class BlockAnimator:
         )
 
     def destroy(self) -> None:
+        self.cancel()
+
+    def cancel(self) -> None:
+        """Invalidate delayed callbacks and restore direct ownership of root."""
+        self._animation_generation += 1
         self.clear_roll_pivot()

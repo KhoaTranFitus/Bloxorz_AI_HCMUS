@@ -27,42 +27,56 @@ class BoardRenderer:
     def __init__(self, board: Board) -> None:
         self.board = board
 
+        # Keep every board entity under one owner.  Destroying this root makes
+        # level transitions atomic and prevents tiles from an old level from
+        # remaining in the scene.
+        self.root = Entity(parent=scene)
+
         self.tile_entities: list[Entity] = []
         self.border_entities: list[Entity] = []
 
         self._create_tiles()
 
     def _create_tiles(self) -> None:
-        for row in range(self.board.height):
-            for col in range(self.board.width):
-                tile_type = self.board.get_tile(row, col)
-
+        """Create tiles in row-major order: left-to-right, top-to-bottom."""
+        draw_index = 0
+        for row, board_row in enumerate(self.board.tiles):
+            for col, tile_type in enumerate(board_row):
                 if tile_type == TileType.VOID:
                     continue
 
                 if tile_type == TileType.GOAL:
-                    self._create_goal(row, col)
+                    self._create_goal(row, col, draw_index)
                 else:
-                    self._create_floor(row, col, tile_type)
+                    self._create_floor(row, col, tile_type, draw_index)
 
-    def _create_floor(self, row: int, col: int, tile_type: TileType) -> None:
-        tile_color = FLOOR_COLOR
-        if tile_type == TileType.SPLIT_SWITCH:
-            tile_color = color.rgb(240, 100, 20)  # Cam đậm cho Split Switch
-        elif tile_type == TileType.SOFT_SWITCH:
-            tile_color = color.rgb(220, 220, 220)  # Xám trắng cho Soft Switch
-        elif tile_type == TileType.HEAVY_SWITCH:
-            tile_color = color.rgb(240, 220, 50)  # Vàng cho Heavy Switch
+                draw_index += 1
 
-    def _create_floor(self, row: int, col: int) -> None:
+    def _create_floor(
+        self,
+        row: int,
+        col: int,
+        tile_type: TileType,
+        draw_index: int,
+    ) -> None:
         """
         Tạo một ô sàn gồm:
         - Đế đen lớn ở dưới.
         - Ô xám nhỏ hơn ở trên.
         """
 
+        tile_color = FLOOR_COLOR
+        if tile_type == TileType.SPLIT_SWITCH:
+            tile_color = color.rgb(240, 100, 20)
+        elif tile_type == TileType.SOFT_SWITCH:
+            tile_color = color.rgb(220, 220, 220)
+        elif tile_type == TileType.HEAVY_SWITCH:
+            tile_color = color.rgb(240, 220, 50)
+
         # Đế đen tạo viền
         border = Entity(
+            parent=self.root,
+            name=f"border_{draw_index:03d}_r{row}_c{col}",
             model="cube",
             texture="white_cube",
             position=Vec3(
@@ -81,6 +95,8 @@ class BoardRenderer:
 
         # Ô sàn màu xám
         tile = Entity(
+            parent=self.root,
+            name=f"tile_{draw_index:03d}_r{row}_c{col}",
             model="cube",
             texture="white_cube",
             position=Vec3(
@@ -99,31 +115,32 @@ class BoardRenderer:
 
         # Ép Ursina cập nhật màu
         border.color = BORDER_COLOR
-        tile.color = FLOOR_COLOR
+        tile.color = tile_color
 
         self.border_entities.append(border)
         self.tile_entities.append(tile)
 
         # Thêm kí hiệu chiếc kéo cho ô chia đôi
-        if tile_type == TileType.SPLIT_SWITCH:
-            symbol = Text(
-                text="X",
-                parent=scene,
-                position=Vec3(col, self.TILE_HEIGHT / 2 + 0.02, -row),
-                scale=15,
-                color=color.black, # Màu đen nổi bật trên nền cam
-                origin=(0, 0),
-            )
-            symbol.rotation_x = 90
-            # Cần lưu trữ để hủy khi đổi level
-            self.tile_entities.append(symbol)
-
-    def _create_goal(self, row: int, col: int) -> None:
+        # if self.tile_entities == TileType.SPLIT_SWITCH:
+        #     symbol = Text(
+        #         text="X",
+        #         parent=scene,
+        #         position=Vec3(col, self.TILE_HEIGHT / 2 + 0.02, -row),
+        #         scale=15,
+        #         color=color.black, # Màu đen nổi bật trên nền cam
+        #         origin=(0, 0),
+        #     )
+        #     symbol.rotation_x = 90
+        #     # Cần lưu trữ để hủy khi đổi level
+        #     self.tile_entities.append(symbol)
+    def _create_goal(self, row: int, col: int, draw_index: int) -> None:
         """
         Goal là một ô màu đen thấp hơn sàn.
         """
 
         goal = Entity(
+            parent=self.root,
+            name=f"goal_{draw_index:03d}_r{row}_c{col}",
             model="cube",
             texture="white_cube",
             position=Vec3(
@@ -145,12 +162,7 @@ class BoardRenderer:
         self.tile_entities.append(goal)
 
     def destroy(self) -> None:
-        for tile in self.tile_entities:
-            destroy(tile)
-
-        for border in self.border_entities:
-            destroy(border)
-
+        destroy(self.root)
         self.tile_entities.clear()
         self.border_entities.clear()
 
@@ -197,6 +209,7 @@ class BlockRenderer:
 
         # Inactive cube entities (only shown when split)
         self.inactive_outline = Entity(
+            parent=self.root,
             model="cube",
             texture="white_cube",
             color=color.black,
@@ -207,7 +220,7 @@ class BlockRenderer:
             model="cube",
             texture="white_cube",
             color=color.rgb(140, 40, 40), # Màu đỏ sẫm hơn để biểu thị bị động
-            parent=None,
+            parent=self.root,
             visible=False,
         )
 
@@ -301,11 +314,6 @@ class BlockRenderer:
 
     #     self.entity.rotation = Vec3(0, 0, 0)
 
-    def destroy(self) -> None:
-        destroy(self.entity)
-        destroy(self.outline)
-        destroy(self.inactive_entity)
-        destroy(self.inactive_outline)
     def _get_position(self, state: GameState) -> Vec3:
         """
         Tính vị trí tâm của block dựa vào trạng thái.
@@ -382,6 +390,9 @@ class BlockRenderer:
 
         if reset_rotation:
             self.root.rotation = self._get_initial_rotation(state)
+
+    def cancel_animation(self) -> None:
+        self.animator.cancel()
 
     def animate_to_state(
         self,

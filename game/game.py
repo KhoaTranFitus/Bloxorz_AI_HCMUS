@@ -17,6 +17,7 @@ from ursina import (
 )
 
 from ai.bfs import bfs_search
+# from ai.dfs import dfs_solver 
 from ai.profiler import run_with_profiling
 from ai.result import SolveResult
 BACKGROUND_COLOR = color.rgb32(45, 55, 70)
@@ -57,12 +58,11 @@ class GameController(Entity):
     # Khi DFS/UCS/A* được viết xong, chỉ cần thêm vào đây.
     SOLVER_REGISTRY: dict[str, Callable[..., dict[str, Any] | None] | None] = {
         "BFS": bfs_search,
-        "DFS": None,    # Chưa implement
+        "DFS": None ,    # Chưa implement
         "UCS": None,    # Chưa implement
         "A*":  None,    # Chưa implement
     }
 
-    def __init__(self, level_path: str | Path) -> None:
     def __init__(
         self,
         level_path: str | Path,
@@ -79,6 +79,8 @@ class GameController(Entity):
         self.move_count = 0
         self.has_won = False
         self.is_busy = False
+        self._transition_generation = 0
+        self._cleaned_up = False
 
         print("[DEBUG] NEW GameController loaded — solver buttons active")
 
@@ -249,7 +251,11 @@ class GameController(Entity):
         Chạy thuật toán solver, lưu kết quả, và bắt đầu replay.
         """
 
-        if self.is_busy:
+        replay_is_playing = (
+            self.replay_controller is not None
+            and self.replay_controller.is_playing
+        )
+        if self.is_busy or replay_is_playing:
             self._show_temporary_message("Đang chạy, vui lòng đợi!")
             return
 
@@ -379,17 +385,34 @@ class GameController(Entity):
         Bị block khi đang replay hoặc đã thắng.
         """
 
-        if self.has_won or self.is_busy:
+        replay_is_playing = (
+            self.replay_controller is not None
+            and self.replay_controller.is_playing
+        )
+        if self.has_won or self.is_busy or replay_is_playing:
             return
 
         self._execute_move(move)
 
-    def _execute_move(self, move: Move) -> None:
+    def _execute_move(
+        self,
+        move: Move,
+        *,
+        allow_when_busy: bool = False,
+    ) -> None:
         """
         Thực hiện di chuyển block (internal).
 
         Không kiểm tra is_busy — dùng cho cả player lẫn replay.
         """
+
+        # Player input must not start a second animation from the same state.
+        # Replay owns the busy lock, so it may explicitly bypass this guard.
+        if self.is_busy and not allow_when_busy:
+            return
+
+        self.is_busy = True
+        generation = self._transition_generation
 
         next_state = apply_move(
             self.level.board,
@@ -407,7 +430,8 @@ class GameController(Entity):
                 fall_duration=self.FALL_DROP_TIME,)
 
             invoke(
-                self._reset_after_fall,
+                self._reset_after_fall_if_current,
+                generation,
                 delay=self.FALL_RESET_DELAY,
             )
 
@@ -423,10 +447,26 @@ class GameController(Entity):
 
         # Sau khi animation kết thúc mới cập nhật state.
         invoke(
-            self._finish_valid_move,
+            self._finish_valid_move_if_current,
+            generation,
             next_state,
             delay=self.MOVE_ANIMATION_TIME,
         )
+
+    def _finish_valid_move_if_current(
+        self,
+        generation: int,
+        next_state: GameState,
+    ) -> None:
+        if self._cleaned_up or generation != self._transition_generation:
+            return
+        self._finish_valid_move(next_state)
+
+    def _reset_after_fall_if_current(self, generation: int) -> None:
+        if self._cleaned_up or generation != self._transition_generation:
+            return
+        self._reset_after_fall()
+
     def _finish_valid_move(
         self,
         next_state: GameState,
@@ -486,6 +526,12 @@ class GameController(Entity):
         Đưa game về trạng thái ban đầu.
         """
 
+        self._transition_generation += 1
+
+        if self.replay_controller is not None:
+            self.replay_controller.stop()
+            self.replay_controller = None
+
         # Xóa nút Next Level nếu có
         if self.next_level_button:
             destroy(self.next_level_button)
@@ -496,6 +542,7 @@ class GameController(Entity):
         self.has_won = False
         self.is_busy = False
 
+        self.block_renderer.cancel_animation()
         self.block_renderer.sync_with_state(self.state,reset_rotation=True,)
         self._update_status_text()
 
@@ -558,11 +605,10 @@ class GameController(Entity):
     def load_new_level(self, next_level_path: Path) -> None:
         """Dọn dẹp level cũ và tải level mới lên màn hình."""
         # 1. Hủy render của board và block cũ
+        self._transition_generation += 1
+
         if self.board_renderer:
-            for entity in self.board_renderer.tile_entities:
-                destroy(entity)
-            for entity in self.board_renderer.border_entities:
-                destroy(entity)
+            self.board_renderer.destroy()
 
         if self.block_renderer:
             self.block_renderer.destroy()
@@ -583,12 +629,13 @@ class GameController(Entity):
         self.is_busy = False
         self.solver_results = []
         if self.replay_controller:
+            self.replay_controller.stop()
             self.replay_controller = None
 
         # 4. Khởi tạo lại renderers
         self.board_renderer = BoardRenderer(self.level.board)
         self.block_renderer = BlockRenderer()
-        self.block_renderer.sync_with_state(self.state)
+        self.block_renderer.sync_with_state(self.state, reset_rotation=True)
 
         # 5. Cập nhật camera để căn giữa map mới
         self._setup_camera()
@@ -596,3 +643,39 @@ class GameController(Entity):
         # 6. Cập nhật lại UI text hiển thị
         self.title_text.text = self.level.name
         self._update_status_text()
+
+    def cleanup(self) -> None:
+        """Destroy every scene/UI entity owned by this game screen."""
+        if self._cleaned_up:
+            return
+
+        self._cleaned_up = True
+        self._transition_generation += 1
+
+        if self.replay_controller is not None:
+            self.replay_controller.stop()
+            self.replay_controller = None
+
+        self.board_renderer.destroy()
+        self.block_renderer.destroy()
+        self.statistics_panel.hide()
+
+        for entity_name in (
+            "next_level_button",
+            "back_button",
+            "restart_button",
+            "statistics_button",
+            "title_text",
+            "status_text",
+            "control_text",
+            "brand_text",
+            "bg_plane",
+        ):
+            entity = getattr(self, entity_name, None)
+            if entity is not None:
+                destroy(entity)
+
+        for button in self.solver_buttons:
+            destroy(button)
+
+        destroy(self)
