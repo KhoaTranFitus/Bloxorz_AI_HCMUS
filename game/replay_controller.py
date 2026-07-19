@@ -56,8 +56,14 @@ class ReplayController:
             return
 
         move = self.moves[self._current_step]
-        self.game._execute_move(move)
+        self.game._execute_move(move, allow_when_busy=True)
         self._current_step += 1
 
         # Lên lịch bước tiếp theo
         invoke(self._play_next_step, delay=self.step_delay)
+
+    def stop(self) -> None:
+        """Invalidate the replay; already scheduled callbacks become no-ops."""
+        self.is_playing = False
+        self._current_step = len(self.moves)
+        self.game.is_busy = False
