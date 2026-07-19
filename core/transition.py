@@ -85,7 +85,12 @@ def is_block_supported(
     return True
 
 
-def find_split_targets(board: Board, row: int, col: int) -> tuple[tuple[int, int], tuple[int, int]] | None:
+def find_split_targets(
+    board: Board,
+    row: int,
+    col: int,
+    bridge_states: tuple[bool, ...] = (),
+) -> tuple[tuple[int, int], tuple[int, int]] | None:
     """
     Tìm 2 ô lân cận phù hợp để đặt 2 khối lập phương khi block bị tách.
     Thứ tự ưu tiên: cặp ô ngang, rồi đến cặp ô dọc, cuối cùng là bất kỳ cặp ô nào walkable.
@@ -94,16 +99,20 @@ def find_split_targets(board: Board, row: int, col: int) -> tuple[tuple[int, int
     vertical = [(row - 1, col), (row + 1, col)]
 
     # 1. Thử cả 2 ô ngang
-    if all(board.is_walkable(r, c) for r, c in horizontal):
+    if all(board.is_walkable(r, c, bridge_states) for r, c in horizontal):
         return (horizontal[0], horizontal[1])
 
     # 2. Thử cả 2 ô dọc
-    if all(board.is_walkable(r, c) for r, c in vertical):
+    if all(board.is_walkable(r, c, bridge_states) for r, c in vertical):
         return (vertical[0], vertical[1])
 
     # 3. Fallback: Chọn bất kỳ 2 ô lân cận nào walkable
     all_neighbors = horizontal + vertical
-    walkable = [pos for pos in all_neighbors if board.is_walkable(pos[0], pos[1])]
+    walkable = [
+        pos
+        for pos in all_neighbors
+        if board.is_walkable(pos[0], pos[1], bridge_states)
+    ]
     if len(walkable) >= 2:
         return (walkable[0], walkable[1])
 
@@ -190,6 +199,74 @@ def apply_split_move(
     )
 
 
+def get_activated_switches(
+    board: Board,
+    state: GameState,
+) -> tuple[tuple[int, int], ...]:
+    """Return the soft and heavy switches pressed in ``state``."""
+
+    activated: list[tuple[int, int]] = []
+
+    for row, col in state.occupied_cells():
+        tile = board.get_tile(row, col)
+
+        if tile == TileType.SOFT_SWITCH:
+            activated.append((row, col))
+        elif (
+            tile == TileType.HEAVY_SWITCH
+            and not state.is_split
+            and state.block.orientation == Orientation.STANDING
+        ):
+            activated.append((row, col))
+
+    return tuple(activated)
+
+
+def _is_state_supported(board: Board, state: GameState) -> bool:
+    return all(
+        board.is_walkable(row, col, state.bridge_states)
+        for row, col in state.occupied_cells()
+    )
+
+
+def _apply_switch_effects(
+    board: Board,
+    previous_state: GameState,
+    next_state: GameState,
+) -> GameState | None:
+    previously_pressed = set(
+        get_activated_switches(board, previous_state)
+    )
+    currently_pressed = set(get_activated_switches(board, next_state))
+    bridge_states = list(next_state.bridge_states)
+
+    for row, col in currently_pressed - previously_pressed:
+        link = board.get_switch_link(row, col)
+        if link is None:
+            continue
+
+        bridge_ids, action = link
+        for bridge_id in bridge_ids:
+            if action == "open":
+                bridge_states[bridge_id] = True
+            elif action == "close":
+                bridge_states[bridge_id] = False
+            else:
+                bridge_states[bridge_id] = not bridge_states[bridge_id]
+
+    final_state = GameState(
+        block=next_state.block,
+        bridge_states=tuple(bridge_states),
+        split_cubes=next_state.split_cubes,
+        active_cube=next_state.active_cube,
+    )
+
+    if not _is_state_supported(board, final_state):
+        return None
+
+    return final_state
+
+
 def apply_move(
     board: Board,
     state: GameState,
@@ -204,7 +281,10 @@ def apply_move(
     """
 
     if state.is_split:
-        return apply_split_move(board, state, move)
+        next_state = apply_split_move(board, state, move)
+        if next_state is None:
+            return None
+        return _apply_switch_effects(board, state, next_state)
 
     # Không thể SWITCH khi block chưa bị tách
     if move == Move.SWITCH:
@@ -219,22 +299,29 @@ def apply_move(
     if moved_block.orientation == Orientation.STANDING:
         tile = board.get_tile(moved_block.row, moved_block.col)
         if tile == TileType.SPLIT_SWITCH:
-            targets = find_split_targets(board, moved_block.row, moved_block.col)
+            targets = find_split_targets(
+                board,
+                moved_block.row,
+                moved_block.col,
+                state.bridge_states,
+            )
             if targets is not None:
                 pos0, pos1 = targets
-                return GameState(
+                next_state = GameState(
                     block=Block(pos0[0], pos0[1], Orientation.CUBE),
                     bridge_states=state.bridge_states,
                     split_cubes=(pos0, pos1),
                     active_cube=0,
                 )
+                return _apply_switch_effects(board, state, next_state)
 
-    return GameState(
+    next_state = GameState(
         block=moved_block,
         bridge_states=state.bridge_states,
         split_cubes=state.split_cubes,
         active_cube=state.active_cube,
     )
+    return _apply_switch_effects(board, state, next_state)
 
 
 def is_goal_state(board: Board, state: GameState) -> bool:

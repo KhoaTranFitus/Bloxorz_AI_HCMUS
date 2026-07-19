@@ -32,6 +32,9 @@ class SolveResult:
     nodes_generated: int = 0
     """Số node đã sinh ra (thêm vào frontier)."""
 
+    total_cost: int = 0
+    """Tổng chi phí của lời giải; có thể khác số bước."""
+
     search_time: float = 0.0
     """Thời gian tìm kiếm (giây)."""
 
