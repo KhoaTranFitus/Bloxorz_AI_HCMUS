@@ -35,10 +35,12 @@ class Board:
         Logic bridge sẽ được thêm sau.
         """
         tile = self.get_tile(row, col)
-
         return tile in {
             TileType.FLOOR,
             TileType.GOAL,
+            TileType.SPLIT_SWITCH,
+            TileType.SOFT_SWITCH,
+            TileType.HEAVY_SWITCH,
         }
 
     def find_goal(self) -> tuple[int, int]:

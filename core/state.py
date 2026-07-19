@@ -33,6 +33,11 @@ class GameState:
     def is_split(self) -> bool:
         return len(self.split_cubes) == 2
 
+    def occupied_cells(self) -> tuple[tuple[int, int], ...]:
+        """Trả về toàn bộ các ô bị chiếm bởi trạng thái hiện tại (hỗ trợ split)."""
+        if self.is_split:
+            return self.split_cubes
+        return self.block.occupied_cells()
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, GameState):
             return False

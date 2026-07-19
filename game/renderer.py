@@ -1,6 +1,6 @@
 """3D renderer for the Bloxorz board and block."""
 
-from ursina import Entity, Vec3, color, destroy
+from ursina import Entity, Vec3, color, destroy, Text, scene
 
 from core.board import Board
 from core.enums import Move, Orientation, TileType
@@ -43,7 +43,16 @@ class BoardRenderer:
                 if tile_type == TileType.GOAL:
                     self._create_goal(row, col)
                 else:
-                    self._create_floor(row, col)
+                    self._create_floor(row, col, tile_type)
+
+    def _create_floor(self, row: int, col: int, tile_type: TileType) -> None:
+        tile_color = FLOOR_COLOR
+        if tile_type == TileType.SPLIT_SWITCH:
+            tile_color = color.rgb(240, 100, 20)  # Cam đậm cho Split Switch
+        elif tile_type == TileType.SOFT_SWITCH:
+            tile_color = color.rgb(220, 220, 220)  # Xám trắng cho Soft Switch
+        elif tile_type == TileType.HEAVY_SWITCH:
+            tile_color = color.rgb(240, 220, 50)  # Vàng cho Heavy Switch
 
     def _create_floor(self, row: int, col: int) -> None:
         """
@@ -84,7 +93,7 @@ class BoardRenderer:
                 0.20,
                 0.80,
             ),
-            color=FLOOR_COLOR,
+            color=tile_color,
             collider=None,
         )
 
@@ -94,6 +103,20 @@ class BoardRenderer:
 
         self.border_entities.append(border)
         self.tile_entities.append(tile)
+
+        # Thêm kí hiệu chiếc kéo cho ô chia đôi
+        if tile_type == TileType.SPLIT_SWITCH:
+            symbol = Text(
+                text="X",
+                parent=scene,
+                position=Vec3(col, self.TILE_HEIGHT / 2 + 0.02, -row),
+                scale=15,
+                color=color.black, # Màu đen nổi bật trên nền cam
+                origin=(0, 0),
+            )
+            symbol.rotation_x = 90
+            # Cần lưu trữ để hủy khi đổi level
+            self.tile_entities.append(symbol)
 
     def _create_goal(self, row: int, col: int) -> None:
         """
@@ -135,6 +158,7 @@ class BlockRenderer:
     TILE_TOP_Y = BoardRenderer.TILE_HEIGHT / 2
 
     def __init__(self) -> None:
+        # Outline entity (black) and inner block (red) for the active block/cube
         """
         Root chịu trách nhiệm về vị trí và góc xoay.
 
@@ -171,6 +195,117 @@ class BlockRenderer:
             sync_with_state=self.sync_with_state,
         )
 
+        # Inactive cube entities (only shown when split)
+        self.inactive_outline = Entity(
+            model="cube",
+            texture="white_cube",
+            color=color.black,
+            visible=False,
+        )
+
+        self.inactive_entity = Entity(
+            model="cube",
+            texture="white_cube",
+            color=color.rgb(140, 40, 40), # Màu đỏ sẫm hơn để biểu thị bị động
+            parent=None,
+            visible=False,
+        )
+
+    # def sync_with_state(self, state: GameState) -> None:
+    #     if state.is_split:
+    #         # Hiện khối bị động
+    #         self.inactive_outline.visible = True
+    #         self.inactive_entity.visible = True
+
+    #         cubes = state.split_cubes
+    #         active_idx = state.active_cube
+    #         inactive_idx = 1 - active_idx
+
+    #         active_pos = cubes[active_idx]
+    #         inactive_pos = cubes[inactive_idx]
+
+    #         # 1. Vẽ khối chủ động
+    #         inner = Vec3(0.76, 0.76, 0.76)
+    #         outline = inner + Vec3(0.06, 0.06, 0.06)
+
+    #         self.outline.scale = outline
+    #         self.entity.scale = inner
+
+    #         pos_active = Vec3(active_pos[1], self.TILE_TOP_Y + 0.38, -active_pos[0])
+    #         self.outline.position = pos_active
+    #         self.entity.position = pos_active
+
+    #         # 2. Vẽ khối bị động
+    #         self.inactive_outline.scale = outline
+    #         self.inactive_entity.scale = inner
+
+    #         pos_inactive = Vec3(inactive_pos[1], self.TILE_TOP_Y + 0.38, -inactive_pos[0])
+    #         self.inactive_outline.position = pos_inactive
+    #         self.inactive_entity.position = pos_inactive
+
+    #     else:
+    #         # Ẩn khối bị động
+    #         # self.inactive_outline.visible = False
+    #         # self.inactive_entity.visible = False
+
+    #         # block = state.block
+
+    #         if block.orientation == Orientation.STANDING:
+    #             inner = Vec3(0.76, 2.0, 0.76)
+    #             outline = inner + Vec3(0.06, 0.06, 0.06)
+
+    #             self.outline.scale = outline
+    #             self.entity.scale = inner
+
+    #             pos = Vec3(block.col, self.TILE_TOP_Y + 1.0, -block.row)
+    #             self.outline.position = pos
+    #             self.entity.position = pos
+
+    #         elif block.orientation == Orientation.HORIZONTAL:
+    #             inner = Vec3(2.0, 0.76, 0.76)
+    #             outline = inner + Vec3(0.06, 0.06, 0.06)
+
+    #             self.outline.scale = outline
+    #             self.entity.scale = inner
+
+    #             pos = Vec3(block.col + 0.5, self.TILE_TOP_Y + 0.38, -block.row)
+    #             self.outline.position = pos
+    #             self.entity.position = pos
+
+    #         elif block.orientation == Orientation.VERTICAL:
+    #             inner = Vec3(0.76, 0.76, 2.0)
+    #             outline = inner + Vec3(0.06, 0.06, 0.06)
+
+    #             self.outline.scale = outline
+    #             self.entity.scale = inner
+
+    #             pos = Vec3(block.col, self.TILE_TOP_Y + 0.38, -(block.row + 0.5))
+    #             self.outline.position = pos
+    #             self.entity.position = pos
+
+    #         elif block.orientation == Orientation.CUBE:
+    #             inner = Vec3(0.76, 0.76, 0.76)
+    #             outline = inner + Vec3(0.06, 0.06, 0.06)
+
+    #             self.outline.scale = outline
+    #             self.entity.scale = inner
+
+    #             pos = Vec3(block.col, self.TILE_TOP_Y + 0.38, -block.row)
+    #             self.outline.position = pos
+    #             self.entity.position = pos
+
+    #         else:
+    #             raise ValueError(
+    #                 f"Unsupported orientation: {block.orientation}"
+    #             )
+
+    #     self.entity.rotation = Vec3(0, 0, 0)
+
+    def destroy(self) -> None:
+        destroy(self.entity)
+        destroy(self.outline)
+        destroy(self.inactive_entity)
+        destroy(self.inactive_outline)
     def _get_position(self, state: GameState) -> Vec3:
         """
         Tính vị trí tâm của block dựa vào trạng thái.

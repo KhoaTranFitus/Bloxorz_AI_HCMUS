@@ -85,30 +85,149 @@ def is_block_supported(
     return True
 
 
+def find_split_targets(board: Board, row: int, col: int) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """
+    Tìm 2 ô lân cận phù hợp để đặt 2 khối lập phương khi block bị tách.
+    Thứ tự ưu tiên: cặp ô ngang, rồi đến cặp ô dọc, cuối cùng là bất kỳ cặp ô nào walkable.
+    """
+    horizontal = [(row, col - 1), (row, col + 1)]
+    vertical = [(row - 1, col), (row + 1, col)]
+
+    # 1. Thử cả 2 ô ngang
+    if all(board.is_walkable(r, c) for r, c in horizontal):
+        return (horizontal[0], horizontal[1])
+
+    # 2. Thử cả 2 ô dọc
+    if all(board.is_walkable(r, c) for r, c in vertical):
+        return (vertical[0], vertical[1])
+
+    # 3. Fallback: Chọn bất kỳ 2 ô lân cận nào walkable
+    all_neighbors = horizontal + vertical
+    walkable = [pos for pos in all_neighbors if board.is_walkable(pos[0], pos[1])]
+    if len(walkable) >= 2:
+        return (walkable[0], walkable[1])
+
+    return None
+
+
+def apply_split_move(
+    board: Board,
+    state: GameState,
+    move: Move,
+) -> GameState | None:
+    """
+    Xử lý bước di chuyển của khối đơn khi block đang bị tách làm hai.
+    """
+    cubes = list(state.split_cubes)
+    active_idx = state.active_cube
+    inactive_idx = 1 - active_idx
+
+    active_pos = cubes[active_idx]
+    inactive_pos = cubes[inactive_idx]
+
+    # Hành động chuyển đổi quyền điều khiển
+    if move == Move.SWITCH:
+        new_active = inactive_idx
+        new_active_pos = cubes[new_active]
+        return GameState(
+            block=Block(new_active_pos[0], new_active_pos[1], Orientation.CUBE),
+            bridge_states=state.bridge_states,
+            split_cubes=state.split_cubes,
+            active_cube=new_active,
+        )
+
+    # Tính vị trí mới của khối chủ động
+    r, c = active_pos
+    if move == Move.UP:
+        new_pos = (r - 1, c)
+    elif move == Move.DOWN:
+        new_pos = (r + 1, c)
+    elif move == Move.LEFT:
+        new_pos = (r, c - 1)
+    elif move == Move.RIGHT:
+        new_pos = (r, c + 1)
+    else:
+        return None
+
+    # Khối chủ động phải di chuyển trên ô hợp lệ
+    if not board.is_walkable(new_pos[0], new_pos[1], state.bridge_states):
+        return None
+
+    # Không được chồng khít lên vị trí khối bị động
+    if new_pos == inactive_pos:
+        return None
+
+    # Kiểm tra tự động hợp nhất (kề cạnh - khoảng cách Manhattan bằng 1)
+    if abs(new_pos[0] - inactive_pos[0]) + abs(new_pos[1] - inactive_pos[1]) == 1:
+        if new_pos[0] == inactive_pos[0]:
+            # Cùng hàng -> Nằm ngang
+            orientation = Orientation.HORIZONTAL
+            row = new_pos[0]
+            col = min(new_pos[1], inactive_pos[1])
+        else:
+            # Cùng cột -> Nằm dọc
+            orientation = Orientation.VERTICAL
+            row = min(new_pos[0], inactive_pos[0])
+            col = new_pos[1]
+
+        merged_block = Block(row, col, orientation)
+        return GameState(
+            block=merged_block,
+            bridge_states=state.bridge_states,
+            split_cubes=(),
+            active_cube=None,
+        )
+
+    # Nếu chưa chạm nhau, cập nhật vị trí khối chủ động
+    new_cubes = list(state.split_cubes)
+    new_cubes[active_idx] = new_pos
+
+    return GameState(
+        block=Block(new_pos[0], new_pos[1], Orientation.CUBE),
+        bridge_states=state.bridge_states,
+        split_cubes=tuple(new_cubes),
+        active_cube=active_idx,
+    )
+
+
 def apply_move(
     board: Board,
     state: GameState,
     move: Move,
 ) -> GameState | None:
     """
-    Áp dụng một hành động lên state.
+    Áp dụng một hành động lên state (hỗ trợ cả block bình thường và split block).
 
     Return:
         GameState mới nếu bước đi hợp lệ.
         None nếu block rơi khỏi board hoặc nằm trên void.
-
-    Sau này BFS, DFS, UCS và A* sẽ gọi chính hàm này.
     """
 
     if state.is_split:
-        raise NotImplementedError(
-            "Split-block movement has not been implemented yet"
-        )
+        return apply_split_move(board, state, move)
+
+    # Không thể SWITCH khi block chưa bị tách
+    if move == Move.SWITCH:
+        return None
 
     moved_block = calculate_moved_block(state.block, move)
 
     if not is_block_supported(board, state, moved_block):
         return None
+
+    # Kiểm tra trigger chia cắt (Split Switch) khi block đứng thẳng trên ô chia cắt
+    if moved_block.orientation == Orientation.STANDING:
+        tile = board.get_tile(moved_block.row, moved_block.col)
+        if tile == TileType.SPLIT_SWITCH:
+            targets = find_split_targets(board, moved_block.row, moved_block.col)
+            if targets is not None:
+                pos0, pos1 = targets
+                return GameState(
+                    block=Block(pos0[0], pos0[1], Orientation.CUBE),
+                    bridge_states=state.bridge_states,
+                    split_cubes=(pos0, pos1),
+                    active_cube=0,
+                )
 
     return GameState(
         block=moved_block,

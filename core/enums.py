@@ -21,6 +21,7 @@ class Orientation(Enum):
     STANDING = auto()
     HORIZONTAL = auto()
     VERTICAL = auto()
+    CUBE = auto()
 
 
 class Move(Enum):
@@ -28,6 +29,7 @@ class Move(Enum):
     DOWN = auto()
     LEFT = auto()
     RIGHT = auto()
+    SWITCH = auto()
 
 
 class TileType(Enum):

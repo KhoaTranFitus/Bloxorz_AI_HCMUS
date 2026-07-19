@@ -1,38 +1,63 @@
-"""Replay controller placeholder."""
+"""Bộ điều khiển replay: tự động lăn block theo chuỗi moves."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ursina import invoke
+
 from core.enums import Move
+
+if TYPE_CHECKING:
+    from game.game import GameController
+
 
 class ReplayController:
     """
-    Quản lý việc phát lại (animate) chuỗi bước đi (actions) 
-    sau khi thuật toán AI đã tìm ra đường đến đích.
+    Phát lại chuỗi bước đi tìm được bởi solver.
+
+    Sử dụng ``ursina.invoke(delay=...)`` để gọi tuần tự
+    ``game.try_move()`` mỗi ``step_delay`` giây.
     """
-    
-    def __init__(self):
-        self.actions: list[Move] = []
-        self.current_step = 0
-        self.is_replaying = False
 
-    def trigger_replay(self, actions: list[Move]):
-        """
-        Nhận mảng các nước đi từ AI Result và kích hoạt trạng thái phát lại.
-        
-        Args:
-            actions: Danh sách các Move ví dụ [Move.UP, Move.RIGHT, Move.DOWN]
-        """
-        self.actions = actions
-        self.current_step = 0
-        self.is_replaying = True
-        print(f"[ReplayController] Bắt đầu replay với {len(actions)} bước.")
+    def __init__(
+        self,
+        game: GameController,
+        moves: list[Move],
+        step_delay: float = 0.4,
+    ) -> None:
+        self.game = game
+        self.moves = list(moves)  # copy để tránh side-effect
+        self.step_delay = step_delay
 
-    def get_next_move(self) -> Move | None:
-        """
-        Lấy nước đi tiếp theo để game loop thực thi và render.
-        Trả về None nếu đã phát lại xong.
-        """
-        if not self.is_replaying or self.current_step >= len(self.actions):
-            self.is_replaying = False
-            return None
-        
-        move = self.actions[self.current_step]
-        self.current_step += 1
-        return move
+        self._current_step: int = 0
+        self.is_playing: bool = False
+
+    def start(self) -> None:
+        """Bắt đầu replay từ bước đầu tiên."""
+
+        if not self.moves:
+            return
+
+        self.is_playing = True
+        self._current_step = 0
+        self.game.is_busy = True
+
+        # Bắt đầu chuỗi replay
+        self._play_next_step()
+
+    def _play_next_step(self) -> None:
+        """Thực hiện bước tiếp theo trong chuỗi replay."""
+
+        if self._current_step >= len(self.moves):
+            # Replay xong
+            self.is_playing = False
+            self.game.is_busy = False
+            return
+
+        move = self.moves[self._current_step]
+        self.game._execute_move(move)
+        self._current_step += 1
+
+        # Lên lịch bước tiếp theo
+        invoke(self._play_next_step, delay=self.step_delay)

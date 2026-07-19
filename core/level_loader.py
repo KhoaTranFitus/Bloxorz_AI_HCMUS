@@ -14,6 +14,9 @@ TILE_SYMBOLS: dict[str, TileType] = {
     ".": TileType.VOID,
     "#": TileType.FLOOR,
     "G": TileType.GOAL,
+    "S": TileType.SPLIT_SWITCH,
+    "s": TileType.SOFT_SWITCH,
+    "h": TileType.HEAVY_SWITCH,
 }
 
 
