@@ -38,3 +38,20 @@ class GameState:
         if self.is_split:
             return self.split_cubes
         return self.block.occupied_cells()
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, GameState):
+            return False
+        return (
+            self.block == other.block
+            and self.bridge_states == other.bridge_states
+            and self.split_cubes == other.split_cubes
+            and self.active_cube == other.active_cube
+        )
+
+    def __hash__(self) -> int:
+        return hash((
+            self.block,
+            self.bridge_states,
+            self.split_cubes,
+            self.active_cube,
+        ))

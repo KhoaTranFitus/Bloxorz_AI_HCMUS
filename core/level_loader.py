@@ -9,7 +9,7 @@ from core.enums import Orientation, TileType
 from core.level import Level
 from core.state import GameState
 
-
+# symbol for each tile in the level
 TILE_SYMBOLS: dict[str, TileType] = {
     ".": TileType.VOID,
     "#": TileType.FLOOR,
