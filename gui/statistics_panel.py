@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ursina import Entity, Text, Button, camera, color, Color, destroy
+from ursina import Entity, Text, Button, camera, color, destroy
 
 from ai.result import SolveResult
 
@@ -12,14 +12,14 @@ ALGORITHM_NAMES = ["BFS", "DFS", "UCS", "A*"]
 
 # ===== Bloxorz Dark-Red Theme =====
 # Background đỏ sẫm đặc trưng Bloxorz
-BG_COLOR = Color(0.18, 0.04, 0.04, 0.95)        # #2E0A0A
-BG_BORDER_COLOR = Color(0.55, 0.12, 0.12, 1.0)   # #8C1F1F
-TITLE_COLOR = Color(1.0, 0.85, 0.3, 1.0)         # Vàng gold
-HEADER_COLOR = Color(1.0, 0.95, 0.75, 1.0)       # Kem nhạt
-DATA_COLOR = Color(1.0, 1.0, 1.0, 1.0)           # Trắng
-NO_DATA_COLOR = Color(0.55, 0.55, 0.55, 1.0)     # Xám
-FAIL_COLOR = Color(1.0, 0.4, 0.4, 1.0)           # Đỏ sáng
-LINE_COLOR = Color(0.55, 0.15, 0.15, 0.8)        # Đỏ viền
+BG_COLOR = color.rgb32(46, 10, 10, 242)           # #2E0A0A
+BG_BORDER_COLOR = color.rgb32(140, 31, 31)        # #8C1F1F
+TITLE_COLOR = color.rgb32(255, 217, 77)            # Vàng gold
+HEADER_COLOR = color.rgb32(255, 242, 191)          # Kem nhạt
+DATA_COLOR = color.rgb32(255, 255, 255)            # Trắng
+NO_DATA_COLOR = color.rgb32(140, 140, 140)         # Xám
+FAIL_COLOR = color.rgb32(255, 102, 102)            # Đỏ sáng
+LINE_COLOR_RGB = (140, 38, 38)                     # Đỏ viền
 
 
 class StatisticsPanel:
@@ -162,8 +162,8 @@ class StatisticsPanel:
             parent=camera.ui,
             position=(0, close_y),
             scale=(0.16, 0.05),
-            color=Color(0.6, 0.15, 0.15, 1.0),
-            highlight_color=Color(0.75, 0.2, 0.2, 1.0),
+            color=color.rgb32(153, 38, 38),
+            highlight_color=color.rgb32(191, 51, 51),
             z=-2,
             on_click=self.hide,
         )
@@ -175,7 +175,7 @@ class StatisticsPanel:
         line = Entity(
             parent=camera.ui,
             model="quad",
-            color=Color(LINE_COLOR.r, LINE_COLOR.g, LINE_COLOR.b, alpha),
+            color=color.rgb32(*LINE_COLOR_RGB, round(alpha * 255)),
             scale=(0.78, 0.002),
             position=(0, y),
             z=-2,

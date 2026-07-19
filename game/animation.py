@@ -77,18 +77,28 @@ class BlockAnimator:
         move: Move,
         duration: float,
     ) -> None:
-        """Roll the block around the edge touching the board."""
+        """
+        Lăn block lớn quanh cạnh đang tiếp xúc với mặt sàn.
+        """
+
         self.clear_roll_pivot()
 
         direction = self._get_move_direction(move)
+
         pivot_position = (
             self.get_position(state)
             + direction * self._get_roll_extent(state, move)
         )
+
         pivot_position.y = self.tile_top_y
 
-        self._roll_pivot = Entity(parent=scene, position=pivot_position)
+        self._roll_pivot = Entity(
+            parent=scene,
+            position=pivot_position,
+        )
+
         self.root.world_parent = self._roll_pivot
+
         self._roll_pivot.animate_rotation(
             self._get_rotation_delta(move),
             duration=duration,
@@ -106,6 +116,84 @@ class BlockAnimator:
         self._animation_generation += 1
         generation = self._animation_generation
         self._begin_edge_roll(current_state, move, duration)
+        invoke(
+            self._sync_if_current,
+            generation,
+            next_state,
+            delay=duration,
+        )
+
+    def animate_split_to_state(
+        self,
+        current_state: GameState,
+        next_state: GameState,
+        move: Move,
+        duration: float = 0.2,
+    ) -> None:
+        """
+        Animation cho cube nhỏ khi block đang bị tách đôi.
+        """
+
+        self._animation_generation += 1
+        generation = self._animation_generation
+
+        self.clear_roll_pivot()
+
+        # SPACE chỉ đổi cube đang điều khiển.
+        if move == Move.SWITCH:
+            self.sync_with_state(next_state, True)
+            return
+
+        if not current_state.is_split:
+            raise ValueError(
+                "animate_split_to_state requires a split state"
+            )
+
+        active_idx = (
+            current_state.active_cube
+            if current_state.active_cube is not None
+            else 0
+        )
+
+        current_row, current_col = (
+            current_state.split_cubes[active_idx]
+        )
+
+        current_position = Vec3(
+            current_col,
+            self.tile_top_y + 0.38,
+            -current_row,
+        )
+
+        # Đảm bảo root nằm đúng tại cube đang điều khiển.
+        self.root.position = current_position
+
+        # Không để rotation của lần trước ảnh hưởng hướng lăn hiện tại.
+        self.root.rotation = Vec3(0, 0, 0)
+
+        direction = self._get_move_direction(move)
+
+        # Cube 1x1x1 có cạnh cách tâm 0.5 đơn vị.
+        pivot_position = (
+            current_position
+            + direction * 0.5
+        )
+
+        pivot_position.y = self.tile_top_y
+
+        self._roll_pivot = Entity(
+            parent=scene,
+            position=pivot_position,
+        )
+
+        self.root.world_parent = self._roll_pivot
+
+        self._roll_pivot.animate_rotation(
+            self._get_rotation_delta(move),
+            duration=duration,
+            curve=curve.in_out_sine,
+        )
+
         invoke(
             self._sync_if_current,
             generation,

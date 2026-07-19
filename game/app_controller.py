@@ -49,12 +49,10 @@ class AppController(Entity):
     def start_level(self, level_number: int) -> None:
         self._clear_current_screen()
 
-        if level_number in range (1,10): 
+        if level_number in range(1, 10):
             level_path = Path(f"levels/level_0{level_number}.json")
-        else: 
+        else:
             level_path = Path(f"levels/level_{level_number}.json")
-
-
         if not level_path.exists():
             print(
                 f"Level file does not exist: {level_path}"

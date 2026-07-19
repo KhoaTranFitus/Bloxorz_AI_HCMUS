@@ -14,10 +14,13 @@ TILE_SYMBOLS: dict[str, TileType] = {
     ".": TileType.VOID,
     "#": TileType.FLOOR,
     "G": TileType.GOAL,
+    "p": TileType.SPLIT_SWITCH,
     "S": TileType.SPLIT_SWITCH,
     "s": TileType.SOFT_SWITCH,
     "h": TileType.HEAVY_SWITCH,
+    "b": TileType.BRIDGE,
     "B": TileType.BRIDGE,
+    "f": TileType.FRAGILE,
 }
 
 
@@ -136,6 +139,7 @@ def load_level(file_path: str | Path) -> Level:
                 )
 
     switch_links = []
+    split_targets = []
     for switch_data in data.get("switches", []):
         row = int(switch_data["row"])
         col = int(switch_data["col"])
@@ -147,10 +151,37 @@ def load_level(file_path: str | Path) -> Level:
         if tiles[row][col] not in {
             TileType.SOFT_SWITCH,
             TileType.HEAVY_SWITCH,
+            TileType.SPLIT_SWITCH,
         }:
             raise ValueError(
-                f"Switch definition ({row}, {col}) is not on 's' or 'h'"
+                f"Switch definition ({row}, {col}) is not on a switch tile"
             )
+
+        if tiles[row][col] == TileType.SPLIT_SWITCH:
+            cube_a_data = switch_data.get("cube_a")
+            cube_b_data = switch_data.get("cube_b")
+            if cube_a_data is not None or cube_b_data is not None:
+                if cube_a_data is None or cube_b_data is None:
+                    raise ValueError(
+                        f"Split switch ({row}, {col}) requires both cube_a and cube_b"
+                    )
+                cube_a = (int(cube_a_data[0]), int(cube_a_data[1]))
+                cube_b = (int(cube_b_data[0]), int(cube_b_data[1]))
+                if cube_a == cube_b:
+                    raise ValueError("Split cube targets must be different")
+                for target_row, target_col in (cube_a, cube_b):
+                    if not (
+                        0 <= target_row < len(board_data)
+                        and 0 <= target_col < len(board_data[0])
+                    ):
+                        raise ValueError(
+                            f"Split target is outside board: ({target_row}, {target_col})"
+                        )
+                    if tiles[target_row][target_col] == TileType.VOID:
+                        raise ValueError(
+                            f"Split target is not walkable: ({target_row}, {target_col})"
+                        )
+                split_targets.append((row, col, cube_a, cube_b))
 
         targets = tuple(
             int(value) for value in switch_data.get("bridge_ids", [])
@@ -171,6 +202,7 @@ def load_level(file_path: str | Path) -> Level:
         tiles=tuple(tiles),
         bridge_ids=tuple(tuple(row) for row in bridge_ids),
         switch_links=tuple(switch_links),
+        split_targets=tuple(split_targets),
     )
 
     start_data = data["start"]
@@ -204,6 +236,12 @@ def load_level(file_path: str | Path) -> Level:
             raise ValueError(
                 f"Initial block is not supported at ({row}, {col})"
             )
+
+    if (
+        start_block.orientation == Orientation.STANDING
+        and board.get_tile(start_block.row, start_block.col) == TileType.FRAGILE
+    ):
+        raise ValueError("Initial block cannot stand on a fragile tile")
 
     return Level(
         name=str(data["name"]),

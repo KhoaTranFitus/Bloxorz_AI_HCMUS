@@ -5,7 +5,8 @@ from ursina import Ursina
 from game.app_controller import AppController
 
 
-app = Ursina()
+# Disable Ursina's editor overlay (FPS/entities/colliders, cog and red X).
+app = Ursina(development_mode=False, fullscreen=False)
 
 app_controller = AppController()
 

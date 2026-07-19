@@ -4,6 +4,7 @@ from ai.base_solver import BaseSolver
 from ai.result import SolveResult
 from core.board import Board
 from core.enums import Move
+from core.level import Level
 from core.state import GameState
 from core.transition import get_valid_moves, is_goal_state
 
@@ -53,3 +54,18 @@ class DFSSolver(BaseSolver):
         """Compatibility alias for older callers."""
 
         return self.solve(board, initial_state)
+
+
+def dfs_search(level: Level) -> dict | None:
+    """Level-based adapter compatible with ``run_with_profiling``."""
+    result = DFSSolver().solve(level.board, level.initial_state)
+    if not result.success:
+        return None
+
+    return {
+        "moves": result.moves,
+        "path": result.path,
+        "nodes_expanded": result.nodes_expanded,
+        "nodes_generated": result.nodes_generated,
+        "total_cost": result.total_cost,
+    }

@@ -47,7 +47,7 @@ class LevelSelectScreen(Entity):
             origin=(0, 0),
             y=0.35,
             scale=2,
-            color=color.white,
+            color=color.rgb32(255, 255, 255),
             z=-1,
         )
 
