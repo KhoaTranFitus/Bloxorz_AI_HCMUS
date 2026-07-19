@@ -9,6 +9,10 @@ class Board:
     width: int
     height: int
     tiles: tuple[tuple[TileType, ...], ...]
+    bridge_ids: tuple[tuple[int, ...], ...] = ()
+    switch_links: tuple[
+        tuple[int, int, tuple[int, ...], str], ...
+    ] = ()
 
     def is_inside(self, row: int, col: int) -> bool:
         return (
@@ -35,6 +39,15 @@ class Board:
         Logic bridge sẽ được thêm sau.
         """
         tile = self.get_tile(row, col)
+
+        if tile == TileType.BRIDGE:
+            bridge_id = self.get_bridge_id(row, col)
+            return (
+                bridge_id is not None
+                and bridge_id < len(bridge_states)
+                and bridge_states[bridge_id]
+            )
+
         return tile in {
             TileType.FLOOR,
             TileType.GOAL,
@@ -42,6 +55,24 @@ class Board:
             TileType.SOFT_SWITCH,
             TileType.HEAVY_SWITCH,
         }
+
+    def get_bridge_id(self, row: int, col: int) -> int | None:
+        if not self.bridge_ids or not self.is_inside(row, col):
+            return None
+
+        bridge_id = self.bridge_ids[row][col]
+        return bridge_id if bridge_id >= 0 else None
+
+    def get_switch_link(
+        self,
+        row: int,
+        col: int,
+    ) -> tuple[tuple[int, ...], str] | None:
+        for switch_row, switch_col, bridge_ids, action in self.switch_links:
+            if (row, col) == (switch_row, switch_col):
+                return bridge_ids, action
+
+        return None
 
     def find_goal(self) -> tuple[int, int]:
         for row in range(self.height):

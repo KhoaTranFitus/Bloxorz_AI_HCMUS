@@ -55,6 +55,7 @@ def run_with_profiling(
         path=raw_result["path"],
         nodes_expanded=raw_result["nodes_expanded"],
         nodes_generated=raw_result["nodes_generated"],
+        total_cost=raw_result.get("total_cost", len(raw_result["moves"])),
         search_time=search_time,
         memory_usage=memory_mb,
     )

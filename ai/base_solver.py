@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 from core.board import Board
 from core.state import GameState
-from ai.result import SearchResult
+from ai.result import SolveResult
 
 class BaseSolver(ABC):
     """
@@ -11,7 +11,7 @@ class BaseSolver(ABC):
     """
 
     @abstractmethod
-    def solve(self, board: Board, initial_state: GameState) -> SearchResult:
+    def solve(self, board: Board, initial_state: GameState) -> SolveResult:
         """
         Khởi chạy quá trình tìm kiếm.
         
@@ -20,6 +20,6 @@ class BaseSolver(ABC):
             initial_state: Trạng thái xuất phát của game.
             
         Returns:
-            SearchResult: Kết quả chứa đường đi và các metrics (thời gian, bộ nhớ, số node).
+            SolveResult: Kết quả chứa đường đi và các metrics (thời gian, bộ nhớ, số node).
         """
         pass

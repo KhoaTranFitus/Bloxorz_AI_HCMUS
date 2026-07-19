@@ -1,81 +1,106 @@
-"""Uniform Cost Search (UCS) solver."""
-import heapq
+"""Uniform-cost graph search for Bloxorz."""
+
+from heapq import heappop, heappush
+from itertools import count
+
 from ai.base_solver import BaseSolver
-from ai.result import SearchResult
-from ai.profiler import Profiler
+from ai.problem import get_step_cost
+from ai.result import SolveResult
 from core.board import Board
+from core.enums import Move
+from core.level import Level
 from core.state import GameState
-from core.enums import Move, TileType
 from core.transition import get_valid_moves, is_goal_state
 
+
+def _reconstruct_path(
+    parents: dict[GameState, tuple[GameState, Move]],
+    goal_state: GameState,
+) -> tuple[list[Move], list[GameState]]:
+    moves: list[Move] = []
+    path: list[GameState] = [goal_state]
+    state = goal_state
+
+    while state in parents:
+        state, move = parents[state]
+        moves.append(move)
+        path.append(state)
+
+    moves.reverse()
+    path.reverse()
+    return moves, path
+
+
+def solve_ucs(
+    board: Board,
+    initial_state: GameState,
+) -> dict | None:
+    """Return the minimum-cost path and raw search statistics."""
+
+    sequence = count()
+    frontier: list[tuple[int, int, GameState]] = [
+        (0, next(sequence), initial_state)
+    ]
+    best_cost: dict[GameState, int] = {initial_state: 0}
+    parents: dict[GameState, tuple[GameState, Move]] = {}
+    nodes_expanded = 0
+    nodes_generated = 1
+
+    while frontier:
+        cost, _, state = heappop(frontier)
+
+        if cost != best_cost.get(state):
+            continue
+
+        if is_goal_state(board, state):
+            moves, path = _reconstruct_path(parents, state)
+            return {
+                "moves": moves,
+                "path": path,
+                "total_cost": cost,
+                "nodes_expanded": nodes_expanded,
+                "nodes_generated": nodes_generated,
+            }
+
+        nodes_expanded += 1
+
+        for move, next_state in get_valid_moves(board, state):
+            next_cost = cost + get_step_cost(board, state, next_state)
+
+            if next_cost >= best_cost.get(next_state, float("inf")):
+                continue
+
+            best_cost[next_state] = next_cost
+            parents[next_state] = (state, move)
+            nodes_generated += 1
+            heappush(
+                frontier,
+                (next_cost, next(sequence), next_state),
+            )
+
+    return None
+
+
+def ucs_search(level: Level) -> dict | None:
+    """Level-based adapter compatible with ``run_with_profiling``."""
+
+    return solve_ucs(level.board, level.initial_state)
+
+
 class UCSSolver(BaseSolver):
-    """
-    Thuật toán Uniform Cost Search.
-    Sử dụng Priority Queue (heapq) để duyệt các node theo chi phí đường đi (cost).
-    """
+    """Object-oriented adapter retained for existing solver callers."""
 
-    def _calculate_cost(self, board: Board, current_state: GameState, next_state: GameState) -> int:
-        """
-        Logic tính hàm Cost (Cost Function):
-        - Đi trên gạch cứng bình thường (Floor): Cost = 1
-        - Bước đi làm thay đổi trạng thái cầu/công tắc: Cost = 2
-        - Bước đi đè lên gạch dễ vỡ (Fragile): Cost = 5
-        """
-        # Nếu trạng thái cầu thay đổi (công tắc đã được kích hoạt)
-        if current_state.bridge_states != next_state.bridge_states:
-            return 2
+    def solve(self, board: Board, initial_state: GameState) -> SolveResult:
+        raw_result = solve_ucs(board, initial_state)
+        if raw_result is None:
+            return SolveResult(algorithm="UCS", success=False)
 
-        # Kiểm tra xem có ô nào nằm đè lên gạch dễ vỡ (Fragile) không
-        for r, c in next_state.block.occupied_cells():
-            if board.get_tile(r, c) == TileType.FRAGILE:
-                return 5
-
-        # Mặc định Floor / Goal
-        return 1
-
-    def solve(self, board: Board, initial_state: GameState) -> SearchResult:
-        profiler = Profiler()
-        profiler.start()
-
-        # Frontier dùng heapq. Cấu trúc phần tử: (cost, id, current_state, path_so_far)
-        # Bổ sung counter `id` để tránh heapq so sánh GameState khi cost bằng nhau.
-        counter = 0
-        frontier = [(0, counter, initial_state, [])]
-        
-        # Dictonary `cost_so_far` dùng để theo dõi chi phí thấp nhất để đến được 1 state
-        cost_so_far: dict[GameState, int] = {initial_state: 0}
-        
-        expanded_nodes = 0
-        final_path: list[Move] | None = None
-
-        while frontier:
-            current_cost, _, current_state, path = heapq.heappop(frontier)
-
-            if is_goal_state(board, current_state):
-                final_path = path
-                break
-
-            expanded_nodes += 1
-
-            for move, next_state in get_valid_moves(board, current_state):
-                step_cost = self._calculate_cost(board, current_state, next_state)
-                new_cost = current_cost + step_cost
-
-                # Nếu state này chưa được duyệt hoặc tìm được đường đi có cost rẻ hơn
-                if next_state not in cost_so_far or new_cost < cost_so_far[next_state]:
-                    cost_so_far[next_state] = new_cost
-                    counter += 1
-                    heapq.heappush(frontier, (new_cost, counter, next_state, path + [move]))
-
-        profiler.stop()
-
-        if final_path is None:
-            final_path = []
-
-        return SearchResult(
-            actions=final_path,
-            search_time=profiler.get_search_time,
-            peak_memory=profiler.get_peak_memory,
-            expanded_nodes=expanded_nodes,
-            path_length=len(final_path)
+        return SolveResult(
+            algorithm="UCS",
+            success=True,
+            moves=raw_result["moves"],
+            path=raw_result["path"],
+            nodes_expanded=raw_result["nodes_expanded"],
+            nodes_generated=raw_result["nodes_generated"],
+            total_cost=raw_result["total_cost"],
         )
