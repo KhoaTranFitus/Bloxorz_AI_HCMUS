@@ -17,33 +17,35 @@ class LevelSelectScreen(Entity):
     LEVEL_GROUPS = (
         (
             "EASY", (1, 2, 3),
-            color.rgb32(55, 145, 95),
-            color.rgb32(38, 83, 62),
+            color.rgb32(174, 116, 103),
+            color.rgb32(66, 38, 43),
         ),
         (
             "MEDIUM", (4, 5, 6),
-            color.rgb32(190, 145, 45),
-            color.rgb32(103, 78, 35),
+            color.rgb32(196, 151, 91),
+            color.rgb32(72, 45, 42),
         ),
         (
             "HARD", (7, 8, 9),
-            color.rgb32(185, 80, 55),
-            color.rgb32(100, 53, 45),
+            color.rgb32(174, 73, 80),
+            color.rgb32(68, 30, 38),
         ),
         (
             "SUPER HARD", (10, 11, 12),
-            color.rgb32(120, 70, 175),
-            color.rgb32(69, 48, 102),
+            color.rgb32(142, 91, 132),
+            color.rgb32(57, 33, 55),
         ),
     )
 
     def __init__(
         self,
         on_level_selected: Callable[[int], None],
+        on_back: Callable[[], None],
     ) -> None:
         super().__init__()
 
         self.on_level_selected = on_level_selected
+        self.on_back = on_back
         self.buttons: list[Button] = []
 
         self.ui_root = Entity(
@@ -53,12 +55,14 @@ class LevelSelectScreen(Entity):
         self._create_background()
         self._create_title()
         self._create_level_buttons()
+        self._create_back_button()
 
     def _create_background(self) -> None:
         self.background = Entity(
             parent=self.ui_root,
             model="quad",
-            color=color.rgb32(35, 40, 50),
+            texture="assets/menuSelect.png",
+            color=color.white,
             scale=(2, 1),
             z=1,
         )
@@ -86,6 +90,14 @@ class LevelSelectScreen(Entity):
             self.LEVEL_GROUPS,
             panel_centers,
         ):
+            Entity(
+                parent=self.ui_root,
+                model="quad",
+                position=center,
+                scale=(0.635, 0.305),
+                color=button_color,
+                z=0.1,
+            )
             Entity(
                 parent=self.ui_root,
                 model="quad",
@@ -123,6 +135,20 @@ class LevelSelectScreen(Entity):
                     self.on_level_selected(selected_level)
                 )
                 self.buttons.append(button)
+
+    def _create_back_button(self) -> None:
+        self.back_button = Button(
+            parent=self.ui_root,
+            text="BACK",
+            position=Vec2(-0.78, 0.43),
+            scale=(0.16, 0.07),
+            color=color.rgb32(100, 53, 45),
+            highlight_color=color.rgb32(185, 80, 55),
+            pressed_color=color.rgb32(75, 38, 34),
+            z=-1,
+        )
+        self.back_button.on_click = self.on_back
+        self.buttons.append(self.back_button)
 
     def cleanup(self) -> None:
         destroy(self.ui_root)
