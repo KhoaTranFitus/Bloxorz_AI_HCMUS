@@ -6,6 +6,7 @@ from ursina import Entity, destroy
 
 from game.game import GameController
 from game.level_select import LevelSelectScreen
+from game.main_menu import MainMenuScreen
 
 
 class AppController(Entity):
@@ -20,7 +21,7 @@ class AppController(Entity):
 
         self.current_screen: Entity | None = None
 
-        self.show_level_select()
+        self.show_main_menu()
 
     def _clear_current_screen(self) -> None:
         if self.current_screen is None:
@@ -39,11 +40,19 @@ class AppController(Entity):
 
         self.current_screen = None
 
+    def show_main_menu(self) -> None:
+        self._clear_current_screen()
+
+        self.current_screen = MainMenuScreen(
+            on_play=self.show_level_select,
+        )
+
     def show_level_select(self) -> None:
         self._clear_current_screen()
 
         self.current_screen = LevelSelectScreen(
             on_level_selected=self.start_level,
+            on_back=self.show_main_menu,
         )
 
     def start_level(self, level_number: int) -> None:

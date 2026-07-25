@@ -131,11 +131,9 @@ class GameController(Entity):
             model="quad",
             texture="assets/background.png",
             position=(0, 0, 50),
-            scale=(100, 56.25),
+            scale=(44, 24.75),
             unlit=True,
         )
-
-        # Chữ "CodenChill" ở gần mép dưới của màn hình trò chơi
         """
         Thiết lập màu nền và ánh sáng cho game.
         """
