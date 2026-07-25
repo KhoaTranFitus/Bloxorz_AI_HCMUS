@@ -14,6 +14,29 @@ from ursina import (
 
 
 class LevelSelectScreen(Entity):
+    LEVEL_GROUPS = (
+        (
+            "EASY", (1, 2, 3),
+            color.rgb32(55, 145, 95),
+            color.rgb32(38, 83, 62),
+        ),
+        (
+            "MEDIUM", (4, 5, 6),
+            color.rgb32(190, 145, 45),
+            color.rgb32(103, 78, 35),
+        ),
+        (
+            "HARD", (7, 8, 9),
+            color.rgb32(185, 80, 55),
+            color.rgb32(100, 53, 45),
+        ),
+        (
+            "SUPER HARD", (10, 11, 12),
+            color.rgb32(120, 70, 175),
+            color.rgb32(69, 48, 102),
+        ),
+    )
+
     def __init__(
         self,
         on_level_selected: Callable[[int], None],
@@ -45,43 +68,61 @@ class LevelSelectScreen(Entity):
             parent=self.ui_root,
             text="SELECT LEVEL",
             origin=(0, 0),
-            y=0.35,
+            y=0.43,
             scale=2,
             color=color.rgb32(255, 255, 255),
             z=-1,
         )
 
     def _create_level_buttons(self) -> None:
-        start_x = -0.48
-        start_y = 0.12
+        panel_centers = (
+            Vec2(-0.34, 0.16),
+            Vec2(0.34, 0.16),
+            Vec2(-0.34, -0.20),
+            Vec2(0.34, -0.20),
+        )
 
-        horizontal_gap = 0.24
-        vertical_gap = 0.24
-
-        for level_number in range(1, 11):
-            row = (level_number - 1) // 5
-            column = (level_number - 1) % 5
-
-            button = Button(
+        for (label, levels, button_color, panel_color), center in zip(
+            self.LEVEL_GROUPS,
+            panel_centers,
+        ):
+            Entity(
                 parent=self.ui_root,
-                text=f"Level {level_number}",
-                position=Vec2(
-                    start_x + column * horizontal_gap,
-                    start_y - row * vertical_gap,
-                ),
-                scale=(0.2, 0.12),
-                color=color.rgb32(85, 120, 180),
-                highlight_color=color.rgb32(110, 150, 220),
-                pressed_color=color.rgb32(65, 95, 150),
+                model="quad",
+                position=center,
+                scale=(0.62, 0.29),
+                color=panel_color,
+                z=0,
+            )
+            Text(
+                parent=self.ui_root,
+                text=label,
+                origin=(0, 0),
+                position=Vec2(center.x, center.y + 0.09),
+                scale=1.15,
+                color=button_color,
                 z=-1,
             )
 
-            button.on_click = (
-                lambda selected_level=level_number:
-                self.on_level_selected(selected_level)
-            )
-
-            self.buttons.append(button)
+            for index, level_number in enumerate(levels):
+                button = Button(
+                    parent=self.ui_root,
+                    text=f"Level {level_number}",
+                    position=Vec2(
+                        center.x + (index - 1) * 0.19,
+                        center.y - 0.045,
+                    ),
+                    scale=(0.16, 0.085),
+                    color=button_color,
+                    highlight_color=color.rgb32(110, 150, 220),
+                    pressed_color=color.rgb32(65, 95, 150),
+                    z=-1,
+                )
+                button.on_click = (
+                    lambda selected_level=level_number:
+                    self.on_level_selected(selected_level)
+                )
+                self.buttons.append(button)
 
     def cleanup(self) -> None:
         destroy(self.ui_root)

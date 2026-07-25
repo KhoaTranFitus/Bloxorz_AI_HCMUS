@@ -23,17 +23,18 @@ from ai.result import SolveResult
 BACKGROUND_COLOR = color.rgb32(45, 55, 70)
 
 
-from core.enums import Move
+from core.enums import Move, Orientation, TileType
 from core.level import Level
 from core.level_loader import load_level
 from core.state import GameState
-from core.transition import apply_move, is_goal_state
+from core.transition import apply_move, calculate_moved_block, is_goal_state
 from game.renderer import BlockRenderer, BoardRenderer
 from game.replay_controller import ReplayController
 from gui.statistics_panel import StatisticsPanel
 
 class GameController(Entity):
     MOVE_ANIMATION_TIME = 0.28
+    SOLVER_START_DELAY = 0.65
     FALL_ROLL_TIME = 0.30
     FALL_DROP_TIME = 0.70
     FALL_RESET_DELAY = FALL_ROLL_TIME + FALL_DROP_TIME + 0.10
@@ -88,6 +89,7 @@ class GameController(Entity):
         self.statistics_panel = StatisticsPanel()
 
         self.next_level_button: Button | None = None
+        self.previous_level_button: Button | None = None
 
         self.board_renderer = BoardRenderer(
             self.level.board,
@@ -215,7 +217,7 @@ class GameController(Entity):
         # ----- Nút chuyển sang màn kế tiếp -----
         self.next_level_button = Button(
             text="Next",
-            position=(-0.64, 0.43),
+            position=(-0.48, 0.43),
             scale=(0.14, 0.07),
             color=color.rgb32(80, 90, 110),
             highlight_color=color.rgb32(105, 115, 135),
@@ -223,6 +225,19 @@ class GameController(Entity):
             on_click=self._go_to_next_level,
         )
         self.next_level_button.text_entity.color = color.rgb32(255, 255, 255)
+
+        self.previous_level_button = Button(
+            text="Previous",
+            position=(-0.64, 0.43),
+            scale=(0.14, 0.07),
+            color=color.rgb32(80, 90, 110),
+            highlight_color=color.rgb32(105, 115, 135),
+            texture=None,
+            on_click=self._go_to_previous_level,
+        )
+        self.previous_level_button.text_entity.color = color.rgb32(
+            255, 255, 255
+        )
 
     def _make_solver_callback(self, algorithm_name: str) -> Callable[[], None]:
         """Tạo closure cho on_click của mỗi nút solver."""
@@ -259,11 +274,30 @@ class GameController(Entity):
             return
 
         # Hiển thị trạng thái đang chạy
-        self.status_text.text = f"{algorithm_name}: Đang chạy..."
-        self.status_text.color = color.rgb32(255, 255, 0)
-
-        # Reset game về trạng thái ban đầu trước khi chạy
         self.restart()
+        generation = self._transition_generation
+        self.is_busy = True
+        self.status_text.text = f"{algorithm_name}: Preparing..."
+        self.status_text.color = color.rgb32(255, 255, 0)
+        invoke(
+            self._run_solver_after_reset,
+            generation,
+            algorithm_name,
+            search_fn,
+            delay=self.SOLVER_START_DELAY,
+        )
+
+    def _run_solver_after_reset(
+        self,
+        generation: int,
+        algorithm_name: str,
+        search_fn: Callable[[Level], dict[str, Any] | None],
+    ) -> None:
+        """Run the search after briefly showing the reset state."""
+        if self._cleaned_up or generation != self._transition_generation:
+            return
+
+        self.status_text.text = f"{algorithm_name}: Searching..."
 
         # Chạy solver với profiling
         result = run_with_profiling(algorithm_name, search_fn, self.level)
@@ -276,6 +310,7 @@ class GameController(Entity):
         self.solver_results.append(result)
 
         if not result.success:
+            self.is_busy = False
             self._show_temporary_message(
                 f"{algorithm_name}: Không tìm được lời giải!"
             )
@@ -290,6 +325,7 @@ class GameController(Entity):
         self.status_text.color = color.rgb32(0, 255, 0)
 
         # Bắt đầu replay
+        self.is_busy = False
         self.replay_controller = ReplayController(
             game=self,
             moves=result.moves,
@@ -314,12 +350,20 @@ class GameController(Entity):
         bàn chơi luôn nằm trong màn hình.
         """
 
-        board_width = self.level.board.width
-        board_height = self.level.board.height
+        occupied_cells = [
+            (row, col)
+            for row, board_row in enumerate(self.level.board.tiles)
+            for col, tile in enumerate(board_row)
+            if tile != TileType.VOID
+        ]
+        rows = [row for row, _ in occupied_cells]
+        cols = [col for _, col in occupied_cells]
+        min_row, max_row = min(rows), max(rows)
+        min_col, max_col = min(cols), max(cols)
 
         # Tâm của bàn chơi.
-        center_x = (board_width - 1) / 2
-        center_z = -(board_height - 1) / 2
+        center_x = (min_col + max_col) / 2
+        center_z = -(min_row + max_row) / 2
 
         board_center = Vec3(
             center_x,
@@ -340,12 +384,12 @@ class GameController(Entity):
         camera.look_at(board_center)
 
         # Chỉ thay đổi vùng nhìn để level lớn vẫn nằm trọn màn hình.
-        board_size = max(
-            board_width,
-            board_height,
+        occupied_size = max(
+            max_col - min_col + 1,
+            max_row - min_row + 1,
         )
 
-        camera.fov = board_size + 4
+        camera.fov = occupied_size + 1.5
 
     def input(self, key: str) -> None:
         """
@@ -410,10 +454,40 @@ class GameController(Entity):
         if next_state is None:
             self._show_temporary_message("You fell!")
 
-            self.block_renderer.animate_fall(move,
-                current_state=self.state,
-                roll_duration=self.FALL_ROLL_TIME,
-                fall_duration=self.FALL_DROP_TIME,)
+            moved_block = (
+                None
+                if self.state.is_split or move == Move.SWITCH
+                else calculate_moved_block(self.state.block, move)
+            )
+            fell_through_fragile = (
+                moved_block is not None
+                and moved_block.orientation == Orientation.STANDING
+                and self.level.board.get_tile(
+                    moved_block.row,
+                    moved_block.col,
+                ) == TileType.FRAGILE
+            )
+
+            if fell_through_fragile:
+                self.block_renderer.animate_fragile_fall(
+                    move=move,
+                    current_state=self.state,
+                    roll_duration=self.FALL_ROLL_TIME,
+                    fall_duration=self.FALL_DROP_TIME,
+                )
+                self.board_renderer.animate_fragile_collapse(
+                    moved_block.row,
+                    moved_block.col,
+                    delay=self.FALL_ROLL_TIME,
+                )
+            else:
+                self.block_renderer.animate_fall(
+                    self.level.board,
+                    move,
+                    current_state=self.state,
+                    roll_duration=self.FALL_ROLL_TIME,
+                    fall_duration=self.FALL_DROP_TIME,
+                )
 
             invoke(
                 self._reset_after_fall_if_current,
@@ -494,6 +568,7 @@ class GameController(Entity):
             reset_rotation=True,
         )
         self.board_renderer.sync_bridge_states(self.state.bridge_states)
+        self.board_renderer.restore_fragile_tiles()
 
         self._update_status_text()
 
@@ -516,6 +591,7 @@ class GameController(Entity):
         self.block_renderer.cancel_animation()
         self.block_renderer.sync_with_state(self.state,reset_rotation=True,)
         self.board_renderer.sync_bridge_states(self.state.bridge_states)
+        self.board_renderer.restore_fragile_tiles()
         self._update_status_text()
 
     def _update_status_text(self) -> None:
@@ -574,6 +650,18 @@ class GameController(Entity):
             print(f"[DEBUG] Error finding next level: {e}")
         return None
 
+    def _get_previous_level_path(self) -> Path | None:
+        """Return the level immediately before the current one."""
+        try:
+            folder = self.level_path.parent
+            levels = sorted(folder.glob("*.json"))
+            current_idx = levels.index(self.level_path)
+            if current_idx > 0:
+                return levels[current_idx - 1]
+        except Exception as error:
+            print(f"[DEBUG] Error finding previous level: {error}")
+        return None
+
     def _go_to_next_level(self) -> None:
         """Chuyển sang level kế tiếp khi người chơi bấm Next."""
         next_level = self._get_next_level_path()
@@ -582,6 +670,13 @@ class GameController(Entity):
             return
 
         self.load_new_level(next_level)
+
+    def _go_to_previous_level(self) -> None:
+        previous_level = self._get_previous_level_path()
+        if previous_level is None:
+            self._show_temporary_message("This is the first level!")
+            return
+        self.load_new_level(previous_level)
 
     def load_new_level(self, next_level_path: Path) -> None:
         """Dọn dẹp level cũ và tải level mới lên màn hình."""
@@ -641,6 +736,7 @@ class GameController(Entity):
 
         for entity_name in (
             "next_level_button",
+            "previous_level_button",
             "back_button",
             "restart_button",
             "statistics_button",
