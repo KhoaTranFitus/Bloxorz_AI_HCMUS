@@ -5,6 +5,7 @@ from collections import deque
 from ai.astar import solve_astar
 from ai.heuristics import goal_distance
 from ai.problem import (
+    FRAGILE_MOVE_COST,
     NORMAL_MOVE_COST,
     SPLIT_MOVE_COST,
     SWITCH_MOVE_COST,
@@ -116,6 +117,23 @@ def test_orientation_does_not_add_cost() -> None:
 
     assert get_step_cost(board, standing, lying) == 1
     assert get_step_cost(board, lying, standing) == 1
+
+
+def test_landing_on_fragile_tile_costs_five() -> None:
+    floor = TileType.FLOOR
+    fragile = TileType.FRAGILE
+    board = Board(
+        width=4,
+        height=1,
+        tiles=((floor, fragile, floor, floor),),
+    )
+    current_state = GameState(Block(0, 2, Orientation.STANDING))
+    next_state = GameState(Block(0, 0, Orientation.HORIZONTAL))
+
+    assert (
+        get_step_cost(board, current_state, next_state)
+        == FRAGILE_MOVE_COST
+    )
 
 
 def test_goal_heuristic_is_zero() -> None:

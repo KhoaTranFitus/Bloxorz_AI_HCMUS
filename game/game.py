@@ -136,17 +136,9 @@ class GameController(Entity):
         )
 
         # Chữ "CodenChill" ở gần mép dưới của màn hình trò chơi
-        self.brand_text = Text(
-            text="CodenChill",
-            position=(0, -0.42),
-            origin=(0, 0),
-            scale=2.2,
-            color=color.rgb32(255, 255, 255, 191),
-        )
         """
         Thiết lập màu nền và ánh sáng cho game.
         """
-
         # Màu nền thật sự phía sau toàn bộ bàn chơi.
         camera.clear_color = BACKGROUND_COLOR
 
