@@ -4,7 +4,12 @@ from collections import deque
 
 from ai.astar import solve_astar
 from ai.heuristics import goal_distance
-from ai.problem import get_step_cost
+from ai.problem import (
+    NORMAL_MOVE_COST,
+    SPLIT_MOVE_COST,
+    SWITCH_MOVE_COST,
+    get_step_cost,
+)
 from ai.ucs import solve_ucs
 from core.block import Block
 from core.board import Board
@@ -80,7 +85,7 @@ def test_cost_is_one_without_bridge_state_change() -> None:
     board, state = _basic_problem()
     lying_state = GameState(Block(1, 2, Orientation.HORIZONTAL))
 
-    assert get_step_cost(board, state, lying_state) == 1
+    assert get_step_cost(board, state, lying_state) == NORMAL_MOVE_COST
 
 
 def test_cost_is_two_when_switch_changes_bridge_state() -> None:
@@ -90,7 +95,19 @@ def test_cost_is_two_when_switch_changes_bridge_state() -> None:
         bridge_states=(True,),
     )
 
-    assert get_step_cost(board, state, next_state) == 2
+    assert get_step_cost(board, state, next_state) == SWITCH_MOVE_COST
+
+
+def test_split_cost_takes_precedence_over_switch_cost() -> None:
+    board, state = _switch_problem(TileType.SOFT_SWITCH)
+    split_state = GameState(
+        Block(2, 2, Orientation.CUBE),
+        bridge_states=(True,),
+        split_cubes=((2, 2), (2, 3)),
+        active_cube=0,
+    )
+
+    assert get_step_cost(board, state, split_state) == SPLIT_MOVE_COST
 
 
 def test_orientation_does_not_add_cost() -> None:

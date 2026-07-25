@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from core.enums import Orientation
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True) # when created this objects can not edit
 class Block:
     """
     Trạng thái hình học của block.
@@ -27,7 +27,7 @@ class Block:
         sẽ cùng sử dụng nó để kiểm tra trạng thái hợp lệ.
         """
 
-        if self.orientation == Orientation.STANDING or self.orientation == Orientation.CUBE:
+        if self.orientation == Orientation.STANDING:
             return ((self.row, self.col),)
 
         if self.orientation == Orientation.HORIZONTAL:

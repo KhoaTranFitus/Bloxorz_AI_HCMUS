@@ -2,6 +2,7 @@
 
 from collections import deque
 
+from ai.problem import get_step_cost
 from core.board import Board
 from core.enums import Move
 from core.level import Level
@@ -37,6 +38,7 @@ def bfs_search(level: Level) -> dict | None:
             "path": [initial_state],
             "nodes_expanded": 0,
             "nodes_generated": 1,
+            "total_cost": 0,
         }
 
     # ----- Khởi tạo BFS -----
@@ -77,6 +79,10 @@ def bfs_search(level: Level) -> dict | None:
                     "path": new_path,
                     "nodes_expanded": nodes_expanded,
                     "nodes_generated": nodes_generated,
+                    "total_cost": sum(
+                        get_step_cost(board, new_path[index], new_path[index + 1])
+                        for index in range(len(new_path) - 1)
+                    ),
                 }
 
             frontier.append((next_state, new_moves, new_path))

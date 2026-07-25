@@ -4,8 +4,10 @@ from collections.abc import Callable
 
 from ursina import Entity, Vec3, curve, destroy, invoke, scene
 
+from core.board import Board
 from core.enums import Move, Orientation
 from core.state import GameState
+from core.transition import calculate_moved_block
 
 
 class BlockAnimator:
@@ -207,6 +209,7 @@ class BlockAnimator:
 
     def animate_fall(
         self,
+        board: Board,
         move: Move,
         current_state: GameState,
         roll_duration: float = 0.25,
@@ -216,20 +219,128 @@ class BlockAnimator:
         self._animation_generation += 1
         generation = self._animation_generation
         self._begin_edge_roll(current_state, move, roll_duration)
+        fall_fulcrum = self._get_fall_fulcrum(board, current_state, move)
         invoke(
-            self._drop_down_if_current,
+            self._tip_or_drop_if_current,
             generation,
+            fall_fulcrum,
+            move,
             fall_duration,
             delay=roll_duration,
         )
 
-    def _drop_down_if_current(self, generation: int, duration: float) -> None:
-        if generation == self._animation_generation:
-            self._drop_down(duration)
+    def animate_fragile_fall(
+        self,
+        move: Move,
+        current_state: GameState,
+        roll_duration: float,
+        fall_duration: float,
+        tile_lead: float = 0.12,
+    ) -> None:
+        """Roll onto a fragile tile, let it break, then fall vertically."""
+        self._animation_generation += 1
+        generation = self._animation_generation
+        self._begin_edge_roll(current_state, move, roll_duration)
+        invoke(
+            self._drop_fragile_if_current,
+            generation,
+            fall_duration - tile_lead,
+            delay=roll_duration + tile_lead,
+        )
 
-    def _drop_down(self, duration: float) -> None:
+    def _drop_fragile_if_current(
+        self,
+        generation: int,
+        duration: float,
+    ) -> None:
+        if generation != self._animation_generation:
+            return
         self.clear_roll_pivot()
-        target_position = self.root.position + Vec3(0, -7, 0)
+        self.root.animate_position(
+            self.root.position + Vec3(0, -7, 0),
+            duration=duration,
+            curve=curve.in_quad,
+        )
+
+    def _get_fall_fulcrum(
+        self,
+        board: Board,
+        state: GameState,
+        move: Move,
+    ) -> Vec3 | None:
+        """Return the board edge that still supports an invalid destination."""
+        if state.is_split:
+            return None
+
+        moved_block = calculate_moved_block(state.block, move)
+        supported_cells = [
+            (row, col)
+            for row, col in moved_block.occupied_cells()
+            if board.is_walkable(row, col, state.bridge_states)
+        ]
+        if not supported_cells or len(supported_cells) == len(
+            moved_block.occupied_cells()
+        ):
+            return None
+
+        direction = self._get_move_direction(move)
+
+        def projection(cell: tuple[int, int]) -> float:
+            row, col = cell
+            return col * direction.x + (-row) * direction.z
+
+        support_row, support_col = max(supported_cells, key=projection)
+        fulcrum = Vec3(support_col, self.tile_top_y, -support_row)
+        return fulcrum + direction * 0.5
+
+    def _tip_or_drop_if_current(
+        self,
+        generation: int,
+        fulcrum: Vec3 | None,
+        move: Move,
+        duration: float,
+    ) -> None:
+        if generation != self._animation_generation:
+            return
+
+        if fulcrum is None:
+            self._drop_down(duration, move)
+            return
+
+        self.clear_roll_pivot()
+        self._roll_pivot = Entity(parent=scene, position=fulcrum)
+        self.root.world_parent = self._roll_pivot
+
+        tip_duration = min(0.22, duration * 0.35)
+        self._roll_pivot.animate_rotation(
+            self._get_rotation_delta(move) * 0.7,
+            duration=tip_duration,
+            curve=curve.in_quad,
+        )
+        invoke(
+            self._drop_if_current,
+            generation,
+            duration - tip_duration,
+            move,
+            delay=tip_duration,
+        )
+
+    def _drop_if_current(
+        self,
+        generation: int,
+        duration: float,
+        move: Move,
+    ) -> None:
+        if generation == self._animation_generation:
+            self._drop_down(duration, move)
+
+    def _drop_down(self, duration: float, move: Move) -> None:
+        self.clear_roll_pivot()
+        target_position = (
+            self.root.position
+            + self._get_move_direction(move) * 1.2
+            + Vec3(0, -7, 0)
+        )
 
         self.root.animate_position(
             target_position,

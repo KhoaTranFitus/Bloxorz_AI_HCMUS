@@ -1,6 +1,7 @@
 """Depth-first search solver."""
 
 from ai.base_solver import BaseSolver
+from ai.problem import get_step_cost
 from ai.result import SolveResult
 from core.board import Board
 from core.enums import Move
@@ -31,7 +32,10 @@ class DFSSolver(BaseSolver):
                     path=path,
                     nodes_expanded=nodes_expanded,
                     nodes_generated=nodes_generated,
-                    total_cost=len(moves),
+                    total_cost=sum(
+                        get_step_cost(board, path[index], path[index + 1])
+                        for index in range(len(path) - 1)
+                    ),
                 )
 
             nodes_expanded += 1
