@@ -405,6 +405,11 @@ class GameController(Entity):
         Bị block khi đang replay hoặc đã thắng.
         """
 
+        # SPACE only switches control while the block is separated. After the
+        # cubes merge, ignore it instead of starting a fall animation.
+        if move == Move.SWITCH and not self.state.is_split:
+            return
+
         replay_is_playing = (
             self.replay_controller is not None
             and self.replay_controller.is_playing
