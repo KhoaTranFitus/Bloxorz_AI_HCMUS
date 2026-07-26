@@ -14,17 +14,29 @@ class DFSSolver(BaseSolver):
     """Explore states with a LIFO stack."""
 
     def solve(self, board: Board, initial_state: GameState) -> SolveResult:
-        stack: list[
-            tuple[GameState, list[Move], list[GameState]]
-        ] = [(initial_state, [], [initial_state])]
+        stack: list[tuple[GameState, Move | None]] = [(initial_state, None)]
         visited: set[GameState] = {initial_state}
+        parent: dict[GameState, tuple[GameState, Move] | None] = {initial_state: None}
         nodes_expanded = 0
         nodes_generated = 1
 
         while stack:
-            state, moves, path = stack.pop()
+            state, _ = stack.pop()
 
             if is_goal_state(board, state):
+                # Reconstruct path
+                path = []
+                moves = []
+                curr = state
+                while parent[curr] is not None:
+                    prev_state, move = parent[curr]
+                    path.append(curr)
+                    moves.append(move)
+                    curr = prev_state
+                path.append(initial_state)
+                path.reverse()
+                moves.reverse()
+
                 return SolveResult(
                     algorithm="DFS",
                     success=True,
@@ -45,12 +57,9 @@ class DFSSolver(BaseSolver):
                     continue
 
                 visited.add(next_state)
+                parent[next_state] = (state, move)
                 nodes_generated += 1
-                stack.append((
-                    next_state,
-                    moves + [move],
-                    path + [next_state],
-                ))
+                stack.append((next_state, move))
 
         return SolveResult(algorithm="DFS", success=False)
 
